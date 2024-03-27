@@ -44,6 +44,27 @@ wfo_backbone_m <- wfo_backbone %>%
   group_by(scientificName) %>%
   mutate(num_different_paths = n_distinct(taxonomicStatus))
 
+multiple_mappings <- wfo_backbone_m %>%
+  filter(num_different_paths > 1)
+
+matched_names$multipleMappingsPossible <- ifelse(matched_names$nameMatch %in% multiple_mappings$scientificName, TRUE, FALSE)
+
+matched_name_summary <- matched_names %>%
+  group_by(taxonomicStatus, multipleMappingsPossible) %>%
+  count() %>%
+  rename(count = n)
+
+ggplot(matched_name_summary, aes(x = taxonomicStatus, y = count, fill = multipleMappingsPossible)) +
+  geom_col(width = 0.5) +
+  geom_text(aes(label = count), vjust = -0.5, position = position_stack(vjust = 1.0)) +
+  scale_fill_manual(values = c("TRUE" = "darkred", "FALSE" = "darkgrey"), name = "Multiple Name\nStatus Based On\n Authority") +  # Set colors for TRUE and FALSE
+  theme_bw() +
+  ggtitle("Taxon Status of North American Plant Name List According to the WorldFloraOnline Backbone") +
+  theme(legend.title = element_text(hjust = 0.5),
+        legend.text.align = 0.5)
+
+
+
 
 
 
