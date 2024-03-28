@@ -63,6 +63,35 @@ ggplot(matched_name_summary, aes(x = taxonomicStatus, y = count, fill = multiple
   theme(legend.title = element_text(hjust = 0.5),
         legend.text.align = 0.5)
 
+## Identify 'recoverable' names based on authorship present in our dataset 
+### rm spaces, then preform an exact match 
+# Remove spacing in all strings in 'column1' and 'column2'
+matched_names <- matched_names[, c("spacelessOurAuthorship", "spacelessWFOAuthorship") := lapply(.SD, function(x) gsub(" ", "", x)), .SDcols = c("authorship", "scientificNameAuthorship")]
+matched_names$authorshipMatch <- matched_names$spacelessOurAuthorship == matched_names$spacelessWFOAuthorship
+
+matched_names2 <- matched_names # create a copy of the variable for testing purposes 
+matched_names3 <- matched_names2 %>% # Create a new field that designates whether authorships need and sufficient for resolution
+  mutate(multMapAuthorshipMatch = case_when(
+    multipleMappingsPossible & authorshipMatch == TRUE ~ TRUE, 
+    multipleMappingsPossible & authorshipMatch != TRUE ~ FALSE)
+  )
+
+resolved_df <- matched_names3 %>% # Grab resolvable names that are multiple mapping but have a usable authorship
+  filter(multipleMappingsPossible == TRUE) %>% 
+  filter(multMapAuthorshipMatch == TRUE) %>% 
+  group_by(nameMatch) %>% 
+  mutate(numDiffTaxStatsWithSameAuthor = n_distinct(taxonomicStatus)) %>% # num of distinct paths
+  ungroup() %>% 
+  filter(numDiffTaxStatsWithSameAuthor == 1) # Filter to the ones that are usable 
+
+matched_names4 <- matched_names3 %>% 
+  mutate(multMapResolutionPossible = case_when(
+    nameMatch %in% resolved_df$nameMatch & multMapAuthorshipMatch == TRUE ~ TRUE,
+    multipleMappingsPossible == FALSE ~ NA, # if we dont need this leave as NA
+    TRUE ~ FALSE # else make it false...
+  ))
+
+
 
 
 
