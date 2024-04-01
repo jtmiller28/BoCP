@@ -91,6 +91,33 @@ matched_names4 <- matched_names3 %>%
     TRUE ~ FALSE # else make it false...
   ))
 
+# Remove those redundant names
+matched_names5 <- matched_names4 %>% 
+  ungroup() %>% 
+  filter(multMapResolutionPossible == TRUE & multipleMappingsPossible != FALSE | multipleMappingsPossible == FALSE)
+
+# Check to see if there are any left over cases of multiple mappings being possible prior to filtering. 
+check <- matched_names5 %>% 
+  group_by(nameMatch) %>% 
+  mutate(n = n()) %>% 
+  arrange() %>% 
+  filter(multipleMappingsPossible == TRUE) # Check shows that there are only 2 names that are redundant that are multiple mappings, however this is just due to the catalogues they derive their info from so safe to filter down. 
+
+# Remove duplicates...
+grab_dups <- matched_names5 %>% 
+  group_by(nameMatch) %>% 
+  mutate(n = n()) %>% 
+  filter(multipleMappingsPossible == TRUE & n > 1)
+
+deduped <- grab_dups %>% 
+  distinct(nameMatch, .keep_all = TRUE) %>% # verify manually, looks like these cases are fine
+  select(!n) # remove extra info 
+
+# Replace dups 
+matched_names6 <- matched_names5 %>% 
+  filter(!nameMatch %in% grab_dups$nameMatch) %>% 
+  rbind(deduped)
+
 
 
 
