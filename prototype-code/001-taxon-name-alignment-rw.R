@@ -7,6 +7,7 @@
 library(data.table)
 library(tidyverse)
 library(rgnparser)
+library(taxadb)
 
 ## Load Data
 raw_bocp_names <- fread("/home/jt-miller/Gurlab/BoCP/data/raw/USACANMEX_plantNamesFieldsAdded.csv",encoding = "UTF-8")
@@ -118,9 +119,131 @@ matched_names6 <- matched_names5 %>%
   filter(!nameMatch %in% grab_dups$nameMatch) %>% 
   rbind(deduped)
 
+# Produce a summary noting alignment status
+matched_names6 %>% 
+  group_by(taxonomicStatus) %>% 
+  summarize(n = n())
+
+# Split datasets based on whether we can get a resolution via WFO 
+matched_names_wfo <- matched_names6 %>% 
+  filter(taxonomicStatus %in% c("Accepted", "Synonym")) %>% 
+  mutate(source = "wfo") %>% 
+  rename(taxonomicSourceID = wfoTaxonID)
+
+unmatched_names <- matched_names6 %>% 
+  filter(taxonomicStatus == "Unchecked" | is.na(taxonomicStatus))
+
+# For the unmatched names, use a selection of taxonomic backbones from the taxadb package to match names
+match_df <- unmatched_names %>%  # Note that for multiple mapping names, defaullt action is to remove in taxadb 
+  mutate(col_id = get_ids(nameMatch, "col")) %>% 
+  mutate(col_harmonizedName = get_names(col_id, "col")) %>% 
+  mutate(itis_id = get_ids(nameMatch, "itis")) %>% 
+  mutate(itis_harmonizedName = get_names(itis_id, "itis")) %>% 
+  mutate(gbif_id = get_ids(nameMatch, "gbif")) %>% 
+  mutate(gbif_harmonizedName = get_names(gbif_id, "gbif")) %>% 
+  select(nameMatch, concatenatedName, TropicosNameID, authorship,col_id, col_harmonizedName, itis_id, itis_harmonizedName, gbif_id, gbif_harmonizedName, spacelessOurAuthorship) %>% 
+  mutate(family = NA, taxonRank = NA , scientificNameAuthorship = NA, family = NA, genus = NA, specificEpithet = NA, wfoTaxonomicStatus = NA, references = NA, multipleMappingsPossible = NA,spacelessWFOAuthorship = NA, authorshipMatch = NA, multMapAuthorshipMatch = NA, multMapResolutionPossible = NA)
+# Coalesce the names via priorty col > itis > gbif
+coal_df <- match_df %>% 
+  mutate(nameAligned = coalesce(col_harmonizedName, itis_harmonizedName, gbif_harmonizedName),
+         source = case_when(
+           !is.na(col_harmonizedName) ~ "col",
+           !is.na(itis_harmonizedName) ~ "itis",
+           !is.na(gbif_harmonizedName) ~ "gbif",
+           TRUE ~ NA_character_
+         ),
+         taxonomicSourceID = case_when(
+           source == "col" ~ col_id, 
+           source == "itis" ~ itis_id, 
+           source == "gbif" ~ gbif_id,
+           TRUE ~ NA_character_
+         ))
+
+# Keep aligned name, append to wfo harmonized names 
+other_catalog_matched_names <- coal_df %>% 
+  select(-col_id, -itis_id, -gbif_id, -col_harmonizedName, -itis_harmonizedName, -gbif_harmonizedName) %>% 
+  rename(taxonomicStatus = wfoTaxonomicStatus)
+
+matched_names_wfo <- matched_names_wfo %>% 
+  mutate(nameAligned = nameMatch)
+
+full_match_df <- rbind(matched_names_wfo, other_catalog_matched_names)
+
+# Remove records that lack a source of resolution
+full_match_df <- full_match_df %>% 
+  filter(!is.na(source))
+
+### Summarize the taxon name alignment 
+# Check to see how many names align per taxonomic source, plus how many names will not align
+full_match_df %>% 
+  group_by(source) %>% 
+  summarize(n = n())
+# Check to see how many multiple mapping names we are capable of recovering 
+full_match_df %>% 
+  filter(multipleMappingsPossible == TRUE) %>% 
+  group_by(multMapResolutionPossible) %>% 
+  summarize(recoveredMultMaps = n())
+
+# create a variable for storing these failed to resolve multiple mapping names 
+mult_mapping_check <- matched_names4 %>% 
+  filter(multipleMappingsPossible) %>% 
+  group_by(nameMatch, multMapResolutionPossible)
+
+mult_mapping_check <- mult_mapping_check %>% 
+  group_by(nameMatch) %>% 
+  mutate(min_resolved = any(multMapResolutionPossible)) %>% 
+  ungroup()
+
+mult_mapping_passes <- mult_mapping_check %>% 
+  filter(min_resolved == TRUE) %>% 
+  distinct(nameMatch, .keep_all = TRUE)
+
+mult_mapping_fails <- mult_mapping_check %>% 
+  filter(min_resolved == FALSE) %>% 
+  distinct(nameMatch, .keep_all = TRUE)
+
+nrow(mult_mapping_passes) / (nrow(mult_mapping_passes) + nrow(mult_mapping_fails))
+
+
+# Check how many names we lost total 
+name_beg <- length(unique(bocp_parsed_names_df2$canonicalfull))
+name_end <- length(unique(full_match_df$nameMatch))
+
+name_beg - name_end # Expected, these are the multiple mappings that were impossible to resolve with current methods. 
+
+### Attach Synonyms to our sets of names
+
+
+# Split according to required authority 
+wfo_names <- full_match_df[source == "wfo"]
+wfo_accepted_names <- wfo_names[taxonomicStatus == "Accepted"]
+wfo_synonym_names <- wfo_names[taxonomicStatus == "Synonym"]
+
+col_names <- full_match_df[source == "col"]
+full_match_df2 <- full_match_df %>%
+  select(!taxonomicStatus)
+itis_names <- full_match_df[source == "itis"]
+gbif_names <- full_match_df[source == "gbif"]
+
+# Build synonym lists based on authority 
+wfo_catalogue_accepted <- wfo_names[t]
 
 
 
 
 
+### Create a dataframe that contains the accepted name and its associated synoynms 
+# rebuild the taxonomic field for Accepted names and Synonym names as they are still currently only aligned according to WFO
 
+full_match_df3 <- full_match_df2 %>% 
+  mutate(taxonomicStatus = case_when(
+    nameMatch == nameAligned ~ "Accepted", 
+    nameMatch != nameAligned ~ "Synonym"
+  ))
+
+accepted_df <- full_match_df3 %>% 
+  filter(taxonomicStatus == "Accepted")
+synonym_df <- full_match_df3 %>% 
+  filter(taxonomicStatus == "Synonym")
+accepted_df <- full_match_df3[taxonomicStatus == "Accepted"] # Create an accepted name table
+synonym_df <- full_match_df3[taxonomicStatus == "Synonym"] # Create a synonym list table 
