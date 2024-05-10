@@ -55,6 +55,16 @@ matched_name_summary <- matched_names %>%
   count() %>%
   rename(count = n)
 
+# Create some simple summary reports 
+num_of_instances_w_multiple_maps_possible <- matched_names %>% 
+  filter(multipleMappingsPossible == TRUE) %>% 
+  nrow()
+num_distinct_names_w_multiple_maps_possible <- matched_names %>% 
+  filter(multipleMappingsPossible == TRUE) %>% 
+  distinct(nameMatch) %>%  
+  nrow()
+
+
 ggplot(matched_name_summary, aes(x = taxonomicStatus, y = count, fill = multipleMappingsPossible)) +
   geom_col(width = 0.5) +
   geom_text(aes(label = count), vjust = -0.5, position = position_stack(vjust = 1.0)) +
@@ -91,6 +101,12 @@ matched_names4 <- matched_names3 %>%
     multipleMappingsPossible == FALSE ~ NA, # if we dont need this leave as NA
     TRUE ~ FALSE # else make it false...
   ))
+
+# Report number of names recovered using Authorship as mapping 
+mult_map_recovery_name_num <- matched_names4 %>% 
+  filter(multMapResolutionPossible) %>% 
+  distinct(nameMatch) %>% 
+  nrow()
 
 # Remove those redundant names
 matched_names5 <- matched_names4 %>% 
@@ -158,6 +174,100 @@ coal_df <- match_df %>%
            source == "gbif" ~ gbif_id,
            TRUE ~ NA_character_
          ))
+# Note how many names cant find alignment at all 
+coal_name_fails <- coal_df %>% 
+  filter(is.na(source))
+coal_name_distinct_fails <- coal_name_fails %>% 
+  distinct(nameMatch) %>%
+  nrow()
+# Remove records that do not find a match at all
+coal_df <- coal_df %>% 
+  filter(!is.na(source))
+# There are dups of names, assure that there are no multiple mappings present
+col_align_n <- coal_df %>% 
+  filter(source == "col") %>% 
+  group_by(nameMatch) %>% 
+  mutate(n_maps = n_distinct(nameAligned)) 
+
+unique(col_align_n$n_maps) == 1 # true, so we can narrow things down to only distinct 
+
+col_df <- coal_df %>% 
+  filter(source == "col") %>% 
+  distinct(nameMatch, nameAligned, .keep_all = TRUE) # note that using both fields *should* be redundant 
+# ITIS check 
+itis_align_n <- coal_df %>% 
+  filter(source == "itis") %>% 
+  group_by(nameMatch) %>% 
+  mutate(n_maps = n_distinct(nameAligned)) 
+
+unique(itis_align_n$n_maps) == 1 # true, so we can narrow things down to only distinct 
+
+itis_df <- coal_df %>% 
+  filter(source == "itis") %>% 
+  distinct(nameMatch, nameAligned, .keep_all = TRUE) # note that using both fields *should* be redundant 
+
+# GBIF check 
+gbif_align_n <- coal_df %>% 
+  filter(source == "gbif") %>% 
+  group_by(nameMatch) %>% 
+  mutate(n_maps = n_distinct(nameAligned)) 
+
+unique(gbif_align_n$n_maps) == 1 # true, so we can narrow things down to only distinct 
+
+gbif_df <- coal_df %>% 
+  filter(source == "gbif") %>% 
+  distinct(nameMatch, nameAligned, .keep_all = TRUE) # note that using both fields *should* be redundant 
+
+  
+  
+### Attach Synonyms: WFO and other catalogues
+# wfo
+
+## other catalogues
+# Load catalogues 
+col <-taxa_tbl("col") %>%
+  select(scientificName,taxonRank,acceptedNameUsageID,taxonomicStatus) %>%
+  filter(taxonRank == "species")
+col %>% show_query()
+col_names <- col %>% collect() #retrieve results
+col_names <- as.data.table(col_names)
+col_accepted_names <- col_names[taxonomicStatus == "accepted"] 
+col_synonymous_names <- col_names[taxonomicStatus == "synonym"]
+col_synonymous_names_d <- col_synonymous_names %>% 
+  distinct(scientificName, taxonRank, taxonomicStatus, .keep_all = TRUE) # there are cases of duplicates. 
+# Check for ambiguous mapping on the acceptedNameUsageID as that would be problematic
+col_non_unique_accepted_names_check <- col_accepted_names %>% 
+  group_by(scientificName) %>% 
+  mutate(multipleAcceptableUsageIDs = n_distinct(acceptedNameUsageID))
+col_non_unique_synonym_names_check <- col_synonymous_names %>% 
+  group_by(scientificName) %>% 
+  mutate(multipleAcceptableUsageIDs = n_distinct(acceptedNameUsageID))
+# remove ambigious mapping as there is no simple way to deal with it 
+col_non_unique_accepted_names <- col_non_unique_accepted_names_check %>%
+  filter(multipleAcceptableUsageIDs >= 2) # vast majority of these are just genera, but there are some cases of genus+specificEpithet having 2 valid mapping paths. This is just too much to deal with though
+col_non_unique_synonym_names <- col_non_unique_synonym_names_check %>% 
+  filter(multipleAcceptableUsageIDs >= 2)
+# IF there are more than one acceptedNameUsageIDs for a name...thats a bit ambigious to deal with, therefore drop the name.
+col_accepted_names_drop <- col_accepted_names[!scientificName %in% col_non_unique_accepted_names$scientificName]
+col_synonymous_names_drop <- col_synonymous_names[]
+# check how many of these effect the coalescent resolution 
+col_name_harm <- col_df 
+col_name_harm <- as.data.table(col_name_harm)
+# create a taxonomicStatus criteria accordingly 
+col_name_harm <- col_name_harm[, taxonomicStatus := ifelse(nameMatch == nameAligned, "accepted", "synonym")]
+col_name_accepted <- col_name_harm[taxonomicStatus == "accepted"]
+col_name_accepted_test <- col_name_accepted[nameAligned %in% col_accepted_names_d$scientificName]
+test_non_uniq_col <- col_name_harm %>% 
+  filter(nameMatch %in% col_non_unique_accepted_names$scientificName)  # check to see if these names are present in our dataset
+# None, proceed...
+#col_ids_to_drop <- col_accepted_names[scientificName %in% col_non_unique_accepted_names$scientificName]
+#col_synonymous_names_d <- col_synonymous_names[!acceptedNameUsageID %in% col_ids_to_drop$acceptedNameUsageID]
+# check how many of these effect the coalescent resolution
+col_name_synonym <- col_name_harm[taxonomicStatus == "synonym"]
+col_name_test_s <- col_name_synonym[nameMatch %in% col_synonymous_names_d$scientificName]
+nrow(col_name_synonym) - nrow(col_name_test_s)
+
+# 
 
 # Keep aligned name, append to wfo harmonized names 
 other_catalog_matched_names <- coal_df %>% 
@@ -204,29 +314,22 @@ mult_mapping_fails <- mult_mapping_check %>%
 
 nrow(mult_mapping_passes) / (nrow(mult_mapping_passes) + nrow(mult_mapping_fails))
 
-
-# Check how many names we lost total 
-name_beg <- length(unique(bocp_parsed_names_df2$canonicalfull))
-name_end <- length(unique(full_match_df$nameMatch))
-
-name_beg - name_end # Expected, these are the multiple mappings that were impossible to resolve with current methods. 
-
-### Attach Synonyms to our sets of names
-
-
 # Split according to required authority 
 wfo_names <- full_match_df[source == "wfo"]
 wfo_accepted_names <- wfo_names[taxonomicStatus == "Accepted"]
 wfo_synonym_names <- wfo_names[taxonomicStatus == "Synonym"]
 
 col_names <- full_match_df[source == "col"]
+col_names_m <- col_names %>% 
+  group_by(nameMatch) %>%
+  mutate(num_different_paths = n_distinct(taxonomicStatus))
 full_match_df2 <- full_match_df %>%
   select(!taxonomicStatus)
 itis_names <- full_match_df[source == "itis"]
 gbif_names <- full_match_df[source == "gbif"]
 
 # Build synonym lists based on authority 
-wfo_catalogue_accepted <- wfo_names[t]
+#wfo_catalogue_accepted <- wfo_names[t]
 
 
 
