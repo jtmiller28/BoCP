@@ -1,32 +1,32 @@
 # A Notebook for current phases of troubleshooting
 
 ## 5/10/2024 
-Current status of project: Names aligned against WFO and subsequent catalogues (COL, ITIS, GBIF in order of priority). 
-Number of Original Names in Ulloa Ulloa et al. 2017: 34538
-Number of Names after removal of nonparsable entities + Hybrids: 34375 (-163 Names) 
-Number of Names matched to WFO: 30872 Accepted status, 4612 Synonym status 
-Number of Names Unmatched to WFO: 1583 Unchecked or NA status
-*Note* the sum of the above being greater than the number of original names is due some names capable of mapping to different taxonomicStatuses depending on the underlying Authorship
-Number of instances of names containing multiple mappings: 3923 instances
-Number of Names affected by multiple mapping in taxonomicStatus/nameAlignment: 1679 Names
-Number of Names considered 'recoverable' given authorship present in the data: 1451 Names  
-Number of Names 'unrecoverable' even with authorship present in the data: -228 Names 
+### Current status of project: Names aligned against WFO and subsequent catalogues (COL, ITIS, GBIF in order of priority). <br> 
+Number of Original Names in Ulloa Ulloa et al. 2017: 34538 <br>
+Number of Names after removal of nonparsable entities + Hybrids: 34375 (-163 Names) <br> 
+Number of Names matched to WFO: 30872 Accepted status, 4612 Synonym status <br>
+Number of Names Unmatched to WFO: 1583 Unchecked or NA status <br>
+*Note* the sum of the above being greater than the number of original names is due some names capable of mapping to different taxonomicStatuses depending on the underlying Authorship <br>
+Number of instances of names containing multiple mappings: 3923 instances <br>
+Number of Names affected by multiple mapping in taxonomicStatus/nameAlignment: 1679 Names <br>
+Number of Names considered 'recoverable' given authorship present in the data: 1451 Names  <br>
+Number of Names 'unrecoverable' even with authorship present in the data: -228 Names <br>
 
-Overall Summary for WFO names
-Original Names: 34538 
-Names Matched: 33222
-Names Unmatched: 925 
-Names lost due to unparsable/hybrid + unresolvableMultipleMappings: 391
-33222 + 925 + 391 == 34538 TRUE -check- 
+### Overall Summary for WFO names 
+Original Names: 34538 <br> 
+Names Matched: 33222 <br>
+Names Unmatched: 925 <br>
+Names lost due to unparsable/hybrid + unresolvableMultipleMappings: 391 <br>
+33222 + 925 + 391 == 34538 TRUE -check- <br>
 
-Overall Summary of Alternative Taxonomic Backbone Matches
-925 names are matched against the alternative catalogues/backbones and coalesced in priority of COL, ITIS, then GBIF. 
-COL names matched: 709
-ITIS names matched: 50
-GBIF names matched: 60
-Remaining names unmatched: 106 names 
+### Overall Summary of Alternative Taxonomic Backbone Matches
+925 names are matched against the alternative catalogues/backbones and coalesced in priority of COL, ITIS, then GBIF. <br> 
+COL names matched: 709 <br>
+ITIS names matched: 50 <br>
+GBIF names matched: 60 <br>
+Remaining names unmatched: 106 names <br> 
 
-Current Status: On line 249: Checking multipleAcceptableUsageIDs for multiple paths. A bit complicated...for some reason im getting that ALL synonyms are of that status (they should map to a single on with a sgrouped argument...check back in on this next.
+Current Status: On line 249: Checking multipleAcceptableUsageIDs for multiple paths. A bit complicated...for some reason im getting that ALL synonyms are of that status (they should map to a single on with a sgrouped argument...check back in on this next. <br>
 
 To do on the Horizon: 
 - Need to attach the synonyms to each resolution: wfo, col, itis, and gbif. 
