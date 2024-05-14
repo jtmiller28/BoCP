@@ -247,6 +247,70 @@ col_non_unique_accepted_names <- col_non_unique_accepted_names_check %>%
   filter(multipleAcceptableUsageIDs >= 2) # vast majority of these are just genera, but there are some cases of genus+specificEpithet having 2 valid mapping paths. This is just too much to deal with though
 col_non_unique_synonym_names <- col_non_unique_synonym_names_check %>% 
   filter(multipleAcceptableUsageIDs >= 2)
+# It appears that many of these non-unique mappings are simply due to non-existent IDs cluttering the mapping (presumably these a relictual and uncleaned from the db), lets remove them if they dont exist as an accepted name and remap to try again. 
+col_accepted_usage_ids <- unique(col_accepted_names$acceptedNameUsageID) # collect the name usage IDs
+col_synonymous_names2 <- col_synonymous_names[acceptedNameUsageID %in% col_accepted_usage_ids]
+col_non_unique_synonym_names_check2 <- col_synonymous_names2 %>% 
+  group_by(scientificName) %>% 
+  mutate(multipleAcceptableUsageIDs = n_distinct(acceptedNameUsageID))
+col_non_unique_synonym_names2 <- col_non_unique_synonym_names_check2 %>% 
+  filter(multipleAcceptableUsageIDs >= 2)
+# Those are true issues (likely related to authorship), we'll have to remove them from our alignment. 
+col_synonymous_names_drop <- col_synonymous_names[!scientificName %in% col_non_unique_synonym_names2$scientificName]
+col_accepted_names_drop <- col_accepted_names[!scientificName %in% col_non_unique_accepted_names]
+# Now, filter out relations according to our data...
+col_df <- col_df[, colTaxonomicStatus := ifelse(nameMatch == nameAligned, "ACCEPTED", "SYNONYM")]
+col_df_accepted <- col_df[colTaxonomicStatus == "ACCEPTED"]
+col_df_synonym <- col_df[colTaxonomicStatus == "SYNONYM"]
+# PROBLEM HERE, we have mix matches 
+col_na_accepted <- col_accepted_names_drop[scientificName %in% col_df_accepted$nameMatch]
+col_na_synonym <- col_synonymous_names_drop[scientificName %in% col_df_synonym$nameMatch]
+# Create a relation df 
+combined_df <- bind_rows(col_na_accepted, col_na_synonym)
+combined_df <- combined_df %>% 
+  mutate(alignedName = case_when(
+    taxonomicStatus == "accepted" ~ scientificName,
+    taxonomicStatus == "synonym" ~ unique(subset(col_na_accepted, col_na_accepted$acceptedNameUsageID == acceptedNameUsageID)$scientificName)
+  ))
+
+combined_df <- combined_df %>%
+  left_join(select(col_na_accepted, acceptedNameUsageID, scientificName), 
+            by = c("acceptedNameUsageID" = "acceptedNameUsageID"),
+            suffix = c("", "_accepted")) %>%
+  mutate(alignedName = case_when(
+    taxonomicStatus == "accepted" ~ scientificName,
+    taxonomicStatus == "synonym" ~ scientificName_accepted
+  ))
+# Ensure that 'acceptedNameUsageID' columns in both data frames are of the same type
+combined_df$acceptedNameUsageID <- as.character(combined_df$acceptedNameUsageID)
+col_na_accepted$acceptedNameUsageID <- as.character(col_na_accepted$acceptedNameUsageID)
+
+# Perform the left join
+combined_df <- combined_df %>%
+  left_join(select(col_na_accepted, acceptedNameUsageID, scientificName), 
+            by = "acceptedNameUsageID",
+            suffix = c("", "_accepted")) %>%
+  mutate(alignedName = case_when(
+    taxonomicStatus == "accepted" ~ scientificName,
+    taxonomicStatus == "synonym" ~ scientificName_accepted
+  )) %>%
+  select(-scientificName_accepted)  # Remove the temporary joined column if not needed
+
+synoynm_relations_df <- col_na_synonym %>% 
+  inner_join(select(col_na_accepted, acceptedNameUsageID, scientificName), 
+            by = "acceptedNameUsageID",
+            suffix = c("", "_accepted"))
+
+synonym_relations_df <- merge(col_na_synonym, col_na_accepted, by = "acceptedNameUsageID", all = TRUE)
+
+
+
+
+
+
+
+
+
 # IF there are more than one acceptedNameUsageIDs for a name...thats a bit ambigious to deal with, therefore drop the name.
 col_accepted_names_drop <- col_accepted_names[!scientificName %in% col_non_unique_accepted_names$scientificName]
 col_synonymous_names_drop <- col_synonymous_names[]
