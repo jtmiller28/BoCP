@@ -228,10 +228,16 @@ non_unique_accepted_names <- wfo_accepted_mapping[, .N, by = "scientificName"]# 
 # Create a simplified version of each respective dt, then attach synonyms
 accepted_mapping <- wfo_accepted_mapping[, c("taxonID", "scientificName"), with = FALSE]
 synonym_mapping <- wfo_synonym_mapping[, c("scientificName", "acceptedNameUsageID"), with = FALSE]
-# Create a 
+# Subset the backbone for our needs 
+wfo_df_accepted <- matched_names_wfo[taxonomicStatus == "Accepted"]
+wfo_df_synonym <- matched_names_wfo[taxonomicStatus == "Synonym"]
 wfo_relations <- merge(accepted_mapping, synonym_mapping, by.x = "taxonID", by.y = "acceptedNameUsageID", all.x = TRUE)
 wfo_relations <- wfo_relations %>% 
-  rename(acceptedName = scientificName.x, synonyms = scientficName.y) 
+  rename(acceptedName = scientificName.x, synonyms = scientificName.y) 
+wfo_relations_f <- wfo_relations %>%  
+  filter(acceptedName %in% wfo_df_accepted$nameMatch | synonyms %in% wfo_df_synonym$nameMatch) %>% 
+  mutate(catalogID = "wfo")
+
 ## other catalogues
 # Load catalogues 
 col <-taxa_tbl("col") %>%
@@ -278,7 +284,9 @@ col_relations <- col_relations %>%
   mutate(catalogID = "col")
 # Now filter the relations to only those that matter for the names we're resolving in our dataset
 col_relations_f <- col_relations %>%  
-  filter(acceptedName %in% col_df_accepted$nameAligned | synonyms %in% col_df_synonym$nameMatch)
+  filter(acceptedName %in% col_df_accepted$nameAligned | synonyms %in% col_df_synonym$nameMatch) %>% 
+  rename(taxonID = acceptedNameUsageID) %>% 
+  select(taxonID, acceptedName, synonyms, catalogID)
 
 ### ITIS 
 itis <-taxa_tbl("itis") %>%
@@ -325,7 +333,9 @@ itis_relations <- itis_relations %>%
   mutate(catalogID = "itis")
 # Now filter the relations to only those that matter for the names we're resolving in our dataset
 itis_relations_f <- itis_relations %>%  
-  filter(acceptedName %in% itis_df_accepted$nameAligned | synonyms %in% itis_df_synonym$nameMatch)
+  filter(acceptedName %in% itis_df_accepted$nameAligned | synonyms %in% itis_df_synonym$nameMatch) %>% 
+  rename(taxonID = acceptedNameUsageID) %>% 
+  select(taxonID, acceptedName, synonyms, catalogID)
 
 ### GBIF 
 gbif <-taxa_tbl("gbif") %>%
@@ -372,18 +382,100 @@ gbif_relations <- gbif_relations %>%
   mutate(catalogID = "gbif")
 # Now filter the relations to only those that matter for the names we're resolving in our dataset
 gbif_relations_f <- gbif_relations %>%  
-  filter(acceptedName %in% gbif_df_accepted$nameAligned | synonyms %in% gbif_df_synonym$nameMatch)
+  filter(acceptedName %in% gbif_df_accepted$nameAligned | synonyms %in% gbif_df_synonym$nameMatch) %>% 
+  rename(taxonID = acceptedNameUsageID) %>% 
+  select(taxonID, acceptedName, synonyms, catalogID)
+
+### Now compare accepted/synonymous names across catalogues to ensure exclusive status
+# Make a reproducible sample to sample testcase this on...
+x <- data.frame(acceptedName = c("X", "X", "Y", "Y", "Y", "Z", "V", "T"),
+                synonymName = c("xxx", "xyx", "yyy", "yyy", "yml", "zzz", "vvv", "ttt"), 
+                backbone = c("col", "col", "col", "col", "col", "col", "col", "col"))
+y <- data.frame(acceptedName = c("A", "A", "B", "C", "D"),
+                synonymName = c("aaa", "axa", "bbb", "ccc", "ddd"), 
+                backbone = c("itis", "itis", "itis", "itis", "itis"))
+z <- data.frame(acceptedName = c("J", "J", "Xi", "T", "A"),
+                synonymName = c("jjj", "xyx", "xxx", "tit", "uuu"), 
+                backbone = c("gbif", "gbif", "gbif", "gbif", "gbif")) 
+
+xy <- bind_rows(x,y) # an example where no duplication should take place
+
+xyz <- bind_rows(x,y,z) # an example where duplication definitely takes place
+
+add_duplication_flags <- function(df) {
+  df <- df %>%
+    group_by(acceptedName) %>% 
+    mutate(a_dupes = n_distinct(backbone)) %>% 
+    ungroup() %>% 
+    group_by(synonymName) %>% 
+    mutate(s_breaks = n_distinct(backbone)) %>% 
+    ungroup()
+  return(df)
+}
+
+# Apply the function to your combined data frames
+xy_with_flags <- add_duplication_flags(xy)
+xyz_with_flags <- add_duplication_flags(xyz)
+
+# Try something else out
+xyz_with_flags <- xyz %>% 
+  group_by(acceptedName) %>% 
+  mutate(a_dupes = n_distinct(backbone)) %>% 
+  ungroup() %>% 
+  group_by(synonymName) %>% 
+  mutate(s_breaks = n_distinct(backbone)) %>% 
+  ungroup()
 
 
+# Combine the relational datatables
+relational_tb <- bind_rows(wfo_relations_f, col_relations_f, itis_relations_f, gbif_relations_f )
 
+relational_tb <- relational_tb %>% 
+  mutate(synonyms = case_when(
+    is.na(synonyms) == TRUE ~ acceptedName, 
+    is.na(synonyms) == FALSE ~ synonyms
+  )) # this is mostly a fix, though we dont have unique cases now...keep in mind 
+add_duplication_flags <- function(df) {
+  df <- df %>%
+    group_by(acceptedName) %>%
+    mutate(a_dupes = n_distinct(catalogID)) %>%
+    ungroup() %>%
+    group_by(synonyms) %>%
+    mutate(s_breaks = n_distinct(catalogID)) %>%
+    ungroup()
+  return(df)
+}
 
+relational_tb_wflags <- add_duplication_flags(relational_tb)
+priority_order <- c("wfo", "col", "itis", "gbif")
 
+relational_tb_filtered <- relational_tb_wflags %>% 
+  mutate(priority = case_when(
+    a_dupes > 1 | s_breaks > 1  ~ match(catalogID, priority_order), 
+    TRUE ~ 0)) %>% 
+  group_by(acceptedName) %>% 
+  filter(priority == min(priority))  %>% 
+  ungroup() %>% 
+  group_by(synonyms) %>% 
+  filter(priority == min(priority)) %>% 
+  ungroup()
 
+# Final Resolution Info:
+final_df <- relational_tb_filtered
 
-
-
-
-
+final_accepted_count <- length(unique(final_df$acceptedName))
+final_synonym_count <- final_df %>% 
+  mutate(copy = case_when(
+    acceptedName == synonyms ~ TRUE,
+    acceptedName != synonyms ~ FALSE
+  )) %>% 
+  filter(copy == FALSE) %>% 
+  group_by(synonyms) %>% 
+  #distinct(synonyms) %>% 
+  nrow()
+  
+  
+  
 
 
 
