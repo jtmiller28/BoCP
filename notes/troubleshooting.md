@@ -26,11 +26,16 @@ ITIS names matched: 50 <br>
 GBIF names matched: 60 <br>
 Remaining names unmatched: 106 names <br> 
 
-Current Status: On line 249: Checking multipleAcceptableUsageIDs for multiple paths. A bit complicated...for some reason im getting that ALL synonyms are of that status (they should map to a single on with a sgrouped argument...check back in on this next. <br>
+Current Status: ~~On line 249: Checking multipleAcceptableUsageIDs for multiple paths. A bit complicated...for some reason im getting that ALL synonyms are of that status (they should map to a single on with a sgrouped argument...check back in on this next.~~ <br>
 
+
+### Final Summary 
+- # of Accepted Names: 33126
+- # of Synoynms attached to these Accepted Names: 125175
+- # of Synonyms with multiple mappings possible (WFO only, aka these require authorship): 8960
 To do on the Horizon: 
-- Need to attach the synonyms to each resolution: wfo, col, itis, and gbif. 
-- Need to make a dataframe that takes all of these and builds a relation table
-- Need to double check that no synonyms double up across the catalogues (or even within catalogs after looking at the organization...)
+- ~~Need to attach the synonyms to each resolution: wfo, col, itis, and gbif.~~ 
+- ~~Need to make a dataframe that takes all of these and builds a relation table~~
+- ~~Need to double check that no synonyms double up across the catalogues (or even within catalogs after looking at the organization...)~~
 - Need to attach Native/Non-Native statuses for each species and its corresponding names. Might be a bit challenging as this requires either A) Aligning with WCVP's taxonomy then checking N/NonN status, or B) ... unsure actually
 - Need to create a count loop that sums up the number of records expected for each species. This is complicated given the code currently. Try gbifdb IF possible...  

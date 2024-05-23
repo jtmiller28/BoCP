@@ -236,7 +236,8 @@ wfo_relations <- wfo_relations %>%
   rename(acceptedName = scientificName.x, synonyms = scientificName.y) 
 wfo_relations_f <- wfo_relations %>%  
   filter(acceptedName %in% wfo_df_accepted$nameMatch | synonyms %in% wfo_df_synonym$nameMatch) %>% 
-  mutate(catalogID = "wfo")
+  mutate(catalogID = "wfo") %>% 
+  distinct(taxonID, acceptedName, synonyms, .keep_all = TRUE)
 
 ## other catalogues
 # Load catalogues 
@@ -471,157 +472,116 @@ final_synonym_count <- final_df %>%
   )) %>% 
   filter(copy == FALSE) %>% 
   group_by(synonyms) %>% 
-  #distinct(synonyms) %>% 
-  nrow()
-  
-  
-  
+  mutate(n = n())
 
+# There are cases where there are repeated synonyms for the same accepted name, this is presumably due to synonyms having multiple mapping paths depending on their underlying authorship. Lets resolve this. 
+final_df2 <- merge(final_df, matched_names_wfo, by.x = "taxonID", by.y = "taxonomicSourceID", all.x = TRUE)
+final_df2 <- select(final_df2, names(final_df), scientificNameAuthorship, multipleMappingsPossible, spacelessWFOAuthorship, authorshipMatch, multMapResolutionPossible)
+final_df3 <- final_df2 %>% # rename for clarity that our multiple mapping resolution was depedent on the acceptedNames, now we need to deal with the synonyms
+  rename(acceptedNameScientificNameAuthorship = scientificNameAuthorship,
+         acceptedNameMultMapsPossible = multipleMappingsPossible,
+         acceptedNameSpacelessWFOAuthorship = spacelessWFOAuthorship, 
+         acceptedNameAuthorshipMatch = authorshipMatch,
+         acceptedNameMultMapResolutionPossible =  multMapResolutionPossible)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# IF there are more than one acceptedNameUsageIDs for a name...thats a bit ambigious to deal with, therefore drop the name.
-col_accepted_names_drop <- col_accepted_names[!scientificName %in% col_non_unique_accepted_names$scientificName]
-col_synonymous_names_drop <- col_synonymous_names[]
-# check how many of these effect the coalescent resolution 
-col_name_harm <- col_df 
-col_name_harm <- as.data.table(col_name_harm)
-# create a taxonomicStatus criteria accordingly 
-col_name_harm <- col_name_harm[, taxonomicStatus := ifelse(nameMatch == nameAligned, "accepted", "synonym")]
-col_name_accepted <- col_name_harm[taxonomicStatus == "accepted"]
-col_name_accepted_test <- col_name_accepted[nameAligned %in% col_accepted_names_d$scientificName]
-test_non_uniq_col <- col_name_harm %>% 
-  filter(nameMatch %in% col_non_unique_accepted_names$scientificName)  # check to see if these names are present in our dataset
-# None, proceed...
-#col_ids_to_drop <- col_accepted_names[scientificName %in% col_non_unique_accepted_names$scientificName]
-#col_synonymous_names_d <- col_synonymous_names[!acceptedNameUsageID %in% col_ids_to_drop$acceptedNameUsageID]
-# check how many of these effect the coalescent resolution
-col_name_synonym <- col_name_harm[taxonomicStatus == "synonym"]
-col_name_test_s <- col_name_synonym[nameMatch %in% col_synonymous_names_d$scientificName]
-nrow(col_name_synonym) - nrow(col_name_test_s)
-
-# 
-
-# Keep aligned name, append to wfo harmonized names 
-other_catalog_matched_names <- coal_df %>% 
-  select(-col_id, -itis_id, -gbif_id, -col_harmonizedName, -itis_harmonizedName, -gbif_harmonizedName) %>% 
-  rename(taxonomicStatus = wfoTaxonomicStatus)
-
-matched_names_wfo <- matched_names_wfo %>% 
-  mutate(nameAligned = nameMatch)
-
-full_match_df <- rbind(matched_names_wfo, other_catalog_matched_names)
-
-# Remove records that lack a source of resolution
-full_match_df <- full_match_df %>% 
-  filter(!is.na(source))
-
-### Summarize the taxon name alignment 
-# Check to see how many names align per taxonomic source, plus how many names will not align
-full_match_df %>% 
-  group_by(source) %>% 
-  summarize(n = n())
-# Check to see how many multiple mapping names we are capable of recovering 
-full_match_df %>% 
-  filter(multipleMappingsPossible == TRUE) %>% 
-  group_by(multMapResolutionPossible) %>% 
-  summarize(recoveredMultMaps = n())
-
-# create a variable for storing these failed to resolve multiple mapping names 
-mult_mapping_check <- matched_names4 %>% 
-  filter(multipleMappingsPossible) %>% 
-  group_by(nameMatch, multMapResolutionPossible)
-
-mult_mapping_check <- mult_mapping_check %>% 
-  group_by(nameMatch) %>% 
-  mutate(min_resolved = any(multMapResolutionPossible)) %>% 
+# merge synonymy, create spaceless authorship
+wfo_backbone_s <- wfo_backbone %>% 
+  filter(scientificName %in% final_df3$synonyms) %>% 
+  group_by(scientificName) %>% 
+  mutate(numDiffAcceptedPaths = n_distinct(acceptedNameUsageID)) %>% 
   ungroup()
 
-mult_mapping_passes <- mult_mapping_check %>% 
-  filter(min_resolved == TRUE) %>% 
-  distinct(nameMatch, .keep_all = TRUE)
+multiple_s_mappings <- wfo_backbone_s %>% 
+  filter(numDiffAcceptedPaths > 1)
 
-mult_mapping_fails <- mult_mapping_check %>% 
-  filter(min_resolved == FALSE) %>% 
-  distinct(nameMatch, .keep_all = TRUE)
+multiple_s_mappings <- multiple_s_mappings %>%  
+  mutate(synonymNameSpacelessWFOAuthorship = gsub(" ", "", scientificNameAuthorship)) # remove spacing 
 
-nrow(mult_mapping_passes) / (nrow(mult_mapping_passes) + nrow(mult_mapping_fails))
-
-# Split according to required authority 
-wfo_names <- full_match_df[source == "wfo"]
-wfo_accepted_names <- wfo_names[taxonomicStatus == "Accepted"]
-wfo_synonym_names <- wfo_names[taxonomicStatus == "Synonym"]
-
-col_names <- full_match_df[source == "col"]
-col_names_m <- col_names %>% 
-  group_by(nameMatch) %>%
-  mutate(num_different_paths = n_distinct(taxonomicStatus))
-full_match_df2 <- full_match_df %>%
-  select(!taxonomicStatus)
-itis_names <- full_match_df[source == "itis"]
-gbif_names <- full_match_df[source == "gbif"]
-
-# Build synonym lists based on authority 
-#wfo_catalogue_accepted <- wfo_names[t]
-
-
-
-
-
-### Create a dataframe that contains the accepted name and its associated synoynms 
-# rebuild the taxonomic field for Accepted names and Synonym names as they are still currently only aligned according to WFO
-
-full_match_df3 <- full_match_df2 %>% 
-  mutate(taxonomicStatus = case_when(
-    nameMatch == nameAligned ~ "Accepted", 
-    nameMatch != nameAligned ~ "Synonym"
+  
+final_df4 <- final_df3 %>%
+  mutate(synonymMultipleMapsPossible = case_when(
+    catalogID != "wfo" ~ NA,
+    synonyms %in% multiple_s_mappings$scientificName ~ TRUE,
+    TRUE ~ FALSE
   ))
 
-accepted_df <- full_match_df3 %>% 
-  filter(taxonomicStatus == "Accepted")
-synonym_df <- full_match_df3 %>% 
-  filter(taxonomicStatus == "Synonym")
-accepted_df <- full_match_df3[taxonomicStatus == "Accepted"] # Create an accepted name table
-synonym_df <- full_match_df3[taxonomicStatus == "Synonym"] # Create a synonym list table 
+multiple_s_mappings_fields <- multiple_s_mappings %>% 
+  select(taxonID, scientificName, synonymNameSpacelessWFOAuthorship, acceptedNameUsageID) %>% 
+  rename(synonym = scientificName) %>% 
+  mutate(source = "df1")
+
+final_df5 <- final_df4 %>% 
+  rename(acceptedNameUsageID = taxonID) %>% 
+  rename(synonym = synonyms) %>% 
+  mutate(source = "df2")
+
+final_df6 <- merge(final_df5, multiple_s_mappings_fields, by = c("synonym", "acceptedNameUsageID"), all.x = TRUE)
+
+final_df7 <- final_df6 %>%  select(acceptedName, synonym, acceptedNameUsageID, catalogID, a_dupes, s_breaks, priority, acceptedNameSpacelessWFOAuthorship, synonymNameSpacelessWFOAuthorship, acceptedNameMultMapResolutionPossible, synonymMultipleMapsPossible, source.x, source.y)
+
+final_df8 <- final_df7 %>% 
+  distinct(acceptedName, synonym, acceptedNameUsageID, catalogID, a_dupes, s_breaks, priority, acceptedNameSpacelessWFOAuthorship, synonymNameSpacelessWFOAuthorship, acceptedNameMultMapResolutionPossible, synonymMultipleMapsPossible,.keep_all = TRUE)
+
+length(unique(final_df8$acceptedName))
+
+final_synonym_count <- final_df8 %>% 
+  mutate(copy = case_when(
+    acceptedName == synonym ~ TRUE,
+    acceptedName != synonym ~ FALSE
+  )) %>% 
+  filter(copy == FALSE) %>% 
+  distinct(synonym, synonymNameSpacelessWFOAuthorship) %>% 
+  nrow()
+
+
+
+  
+  
+  
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
