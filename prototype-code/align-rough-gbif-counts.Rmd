@@ -1,0 +1,78 @@
+---
+title: "align-rough-gbif-counts"
+author: "jt miller"
+date: "2024-06-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Align gbif rough counts so we know how much data we are actually dealing with.
+
+Load Libraries
+```{r}
+library(data.table)
+library(dplyr)
+```
+
+Load Data 
+```{r}
+final_rough_gbif_counts <- fread("/blue/guralnick/millerjared/BoCP/data/processed/final-rough-gbif-counts.csv")
+
+final_name_alignment <- fread("/blue/guralnick/millerjared/BoCP/data/processed/finalized_name_alignment.csv")
+```
+
+Create gbif's alignment relations to our finalized name alignment table.
+```{r}
+gbif_name_match <- names %>% 
+  mutate(gbif_id = get_ids(acceptedName, "gbif")) %>% 
+  mutate(gbif_harmonizedName = get_names(gbif_id, "gbif"))
+
+gbif_match_fails <- gbif_name_match %>% 
+  filter(is.na(gbif_harmonizedName))
+
+gbif_match_s_retry <- gbif_match_fails %>% 
+  mutate(gbif_id2 = get_ids(synonym, "gbif")) %>% 
+  mutate(gbif_harmonizedName2 = get_names(gbif_id2, "gbif"))
+
+gbif_match_s_retry_f <- gbif_match_s_retry %>% 
+  group_by(acceptedName) %>% 
+  mutate(foundMatch = case_when(
+    any(!is.na(gbif_harmonizedName2)) ~ TRUE,
+    TRUE ~ FALSE
+  ))
+
+gbif_match_s_retry_d <- gbif_match_s_retry_f %>% 
+  filter(!is.na(gbif_harmonizedName2) & foundMatch == TRUE) %>% 
+  distinct(acceptedName, .keep_all = TRUE)
+
+unresolvables <- gbif_match_s_retry_f %>%  
+  filter(is.na(gbif_harmonizedName2) & foundMatch == FALSE) %>% 
+  distinct(acceptedName, .keep_all = TRUE)
+
+# Grab the successful matches 
+gbif_match_successes <- gbif_name_match %>% 
+  filter(!is.na(gbif_harmonizedName))
+gbif_match_retry_successes <- gbif_match_s_retry_d
+```
+Read in and create a full table for the counts 
+```{r}
+count_tables <- list.files("/blue/guralnick/millerjared/BoCP/data/processed/gbif-count-tables-full/")
+
+
+x <- list()
+for(i in 1:length(count_tables)){
+  x[[i]] <- fread(paste0("/blue/guralnick/millerjared/BoCP/data/processed/gbif-count-tables-full/", count_tables[i]))
+  
+}
+
+count_table <- rbindlist(x)
+```
+
+```{r}
+
+```
+
+
