@@ -1,0 +1,126 @@
+---
+title: "gbif-db-counts"
+author: "jt-miller"
+date: "2024-06-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### GBIF db counts 
+```{r}
+library(gbifdb)
+library(dplyr)
+library(data.table)
+library(rgnparser)
+library(ggplot2)
+#remotes::install_github("ropensci/rgnparser", force = TRUE)
+
+```
+Load in the name alignment
+```{r}
+names_aligned <- fread("/home/jtmiller/my_elements/jtmiller/BoCP/data/processed/finalized_name_alignment.csv")
+```
+
+Load in the gbif local db
+```{r}
+Sys.setenv(GBIF_HOME = "/home/jtmiller/my_elements/jtmiller/BoCP/data/gbif-db/") # where the db is locally stored
+
+# Some path shenanigans, as gnparser and rstudioserver do not communicate well. Basically grab our default path and append the homebrew path I made, and read that in as the System Defualt variable. 
+my_path <- Sys.getenv("PATH") # grab our path
+
+Sys.setenv(PATH = paste0(my_path, ":/home/linuxbrew/.linuxbrew/Cellar/gnparser/1.10.1/bin"))
+
+gbif <- gbif_local() # creates a local call of the db
+```
+
+Query for counts in the database
+```{r}
+bench::bench_time({
+  species_counts <- gbif %>% filter(species %in% names_aligned$acceptedName | species %in% names_aligned$synonym) %>% group_by(species) %>% summarize(n_count_species = n()) %>% collect()
+  scientific_name_counts <- gbif %>% filter(species %in% names_aligned$acceptedName | species %in% names_aligned$synonym) %>% group_by(scientificname, species) %>% summarize(n_count_name = n()) %>% collect()
+})
+```
+Parse the names, apologies
+```{r}
+parsed_sn_counts <- rgnparser::gn_parse_tidy(scientific_name_counts$scientificname)
+
+bocp_parsed_names_df <- merge(scientific_name_counts, parsed_sn_counts, by.x = 'scientificname', by.y = 'verbatim')
+
+parsed_c_relations <- select(bocp_parsed_names_df, scientificname, canonicalfull, authorship, species, n_count_name)
+```
+Using our taxonomy, create a summary of count per accepted name + its synonyms 
+```{r}
+# First grab the synonyms 
+accepted_name_counts_by_alignment <- parsed_c_relations %>% 
+  filter(canonicalfull %in% names_aligned$acceptedName)
+
+just_accepted_names <- data.frame(acceptedName = unique(names_aligned$acceptedName))
+
+# Append relations
+ancs_w_relations <- merge(accepted_name_counts_by_alignment, just_accepted_names, by.x = "canonicalfull", by.y = "acceptedName")
+
+ancs_w_relations <- ancs_w_relations %>% 
+  rename(acceptedName = canonicalfull)
+
+# Merge the data frames on synonym and scientificName
+merged_df <- name_alignment %>%
+  right_join(parsed_c_relations, by = c("synonym" = "scientificname"))
+
+# Calculate the total count for each accepted name
+result_df <- merged_df %>%
+  group_by(acceptedName) %>%
+  mutate(total_count = sum(n_count_name)) %>%
+  ungroup()
+
+
+
+```
+```{r}
+# Create the accepted_synonyms data frame
+accepted_synonyms <- data.frame(
+  acceptedName = c('x', 'x', 'x'),
+  synonym = c('x', 'xyx', 'zx')
+)
+
+# Create the scientific_counts data frame
+scientific_counts <- data.frame(
+  scientificName = c('x', 'xyx', 'zzz', 'zx'),
+  n_count = c(0, 20, 100, 10)
+)
+
+# Merge the data frames on synonym and scientificName
+merged_df <- accepted_synonyms %>%
+  right_join(scientific_counts, by = c("synonym" = "scientificName"))
+
+# Calculate the total count for each accepted name
+result_df <- merged_df %>%
+  group_by(acceptedName) %>%
+  mutate(total_count = sum(n_count)) %>%
+  ungroup()
+
+print(result_df)
+
+fwrite(result_df, "/home/jtmiller/my_elements/jtmiller/BoCP/data/processed/gbif-db-counts.csv")
+```
+```{r}
+# create a distributional graph showing these counts 
+
+accepted_result_df <- result_df %>% 
+  distinct(acceptedName, .keep_all = TRUE) # only use distinct acceptedNames
+
+ggplot(accepted_result_df, aes(x = (log(total_count) + 1))) + 
+  geom_density(fill = "skyblue", alpha = 0.5) + 
+  labs(title = "Density Plot of Total GBIF Counts by Accepted Name", 
+       x = "Log(Total Count) + 1", 
+       y = "Density") +
+  theme_minimal()
+
+
+
+
+```
+
+
