@@ -1,9 +1,10 @@
-install.packages("gatoRs")
+#install.packages("gatoRs")
 
 # Load packages
 library(gatoRs)
 library(data.table)
 library(dplyr)
+source("prototype-code/gatoRs-fxns-edited.R")
 
 # Read in the name alignment
 name_alignment <- fread("/home/jtmiller/my_elements/jtmiller/BoCP/data/processed/finalized_name_alignment.csv")

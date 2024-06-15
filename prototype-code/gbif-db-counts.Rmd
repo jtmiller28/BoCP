@@ -118,7 +118,7 @@ ggplot(accepted_result_df, aes(x = (log(total_count) + 1))) +
        y = "Density") +
   theme_minimal()
 
-
+# Determine what quotas of these will be used on what models (chat with Rob)
 
 
 ```
