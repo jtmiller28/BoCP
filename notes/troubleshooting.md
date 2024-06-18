@@ -26,7 +26,10 @@ ITIS names matched: 50 <br>
 GBIF names matched: 60 <br>
 Remaining names unmatched: 106 names <br> 
 
-Current Status: ~~On line 249: Checking multipleAcceptableUsageIDs for multiple paths. A bit complicated...for some reason im getting that ALL synonyms are of that status (they should map to a single on with a sgrouped argument...check back in on this next.~~ <br>
+Alignments were merged across all backbones, and assessed for duplications of acceptedNames across backbones and duplication of synoynms across backbones. These names were removed via priority of wfo > col > itis > gbif <br> 
+
+Synonyms were then assessed for multipleMapping status in the WFO backbone, as the other backbones were judged to add little data in comparison. for those names that will map to multiple accepted names per just the genus+specificEpithet of the synoynm, I created another field called synonymWFOSpacelessAuthorship. During data prep, much like how we will require that multipleMapping AcceptedNames have an associated valid authorship, we will require this for these synonyms as well. <br> 
+
 
 
 ### Final Summary 
