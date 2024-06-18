@@ -581,8 +581,11 @@ final_multiple_map_on_synonym_count <- final_df8 %>%
   distinct(synonym, synonymNameSpacelessWFOAuthorship) %>% 
   nrow()
 
+final_df9 <- final_df8 %>% 
+  select(-source.x, -source.y, -a_dupes, -s_breaks, -priority)
 
-fwrite(final_df8, "/home/jt-miller/Gurlab/BoCP/data/processed/finalized_name_alignment.csv")
+
+fwrite(final_df9, "/home/jt-miller/Gurlab/BoCP/data/processed/finalized_name_alignment.csv")
   
   
   
