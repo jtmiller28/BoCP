@@ -33,6 +33,10 @@ hybrids <- bocp_parsed_names_df %>% # Grab a list of names that are hybrids
 bocp_parsed_names_df2 <- bocp_parsed_names_df %>%
   filter(!concatenatedName %in% hybrids$concatenatedName)
 
+
+
+  
+
 ### Align with WorldFloraOnline Taxonomy 
 
 ## Using the wfo backbone, merge on the canonicalFull name 
@@ -221,13 +225,49 @@ gbif_df <- coal_df %>%
   
   
 ### Attach Synonyms: WFO and other catalogues
+## 6/18/2024 edit: Add in subspecific designations to parent taxon when they are accepted names within WFO's taxonomy
+# First find the accepted subspecific assignments
+wfo_backbone_subspecific <- wfo_backbone %>% 
+  filter(taxonRank %in% c("variety", "subspecies", "form", "subvariety", "subform")) %>% 
+  filter(taxonomicStatus == "Accepted")
+# Find what their parent taxon is 
+wfo_backbone_subspecific <- wfo_backbone_subspecific %>% 
+  mutate(parentTaxon = stringr::word(scientificName, 1, 2)) %>% 
+  mutate(taxonomicStatus = "Synonym") # manually change these to Synonyms.
+
+updated_wfo_backbone <- merge(wfo_backbone, wfo_backbone_subspecific, by.x = "scientificName", by.y = "parentTaxon")
+updated_wfo_backbone <- updated_wfo_backbone %>% 
+  mutate(statusMatch = ifelse(taxonomicStatus.x == taxonomicStatus.y, TRUE, FALSE)) %>% 
+  filter(statusMatch == FALSE) %>%  # grab the cases we designed
+  mutate(acceptedNameUsageID.y = ifelse(acceptedNameUsageID.y == "", taxonID.x, acceptedNameUsageID.y)) %>%  
+  rename(acceptedNameUsageID = acceptedNameUsageID.y, parentTaxon = scientificName, scientificName = scientificName.y, 
+         scientificNameAuthorship = scientificNameAuthorship.y, taxonomicStatus = taxonomicStatus.y,
+         taxonID = taxonID.x) %>% 
+  select(taxonID, scientificName, scientificNameAuthorship, parentTaxon, taxonomicStatus,  acceptedNameUsageID, taxonID) 
+
+test_mult_maps <- updated_wfo_backbone %>%
+  group_by(scientificName) %>%
+  mutate(num_different_paths = n_distinct(taxonomicStatus)) 
+
+test_multiple_mappings <- test_mult_maps  %>% # tis all good! 
+  filter(num_different_paths > 1)
+
+wfo_backbone2 <- wfo_backbone %>% 
+  filter(!scientificName %in% updated_wfo_backbone$scientificName)
+
+wfo_backbone2 <- wfo_backbone2 %>% 
+  mutate(parentTaxon = NA) %>% 
+  select(taxonID, scientificName, scientificNameAuthorship, parentTaxon, taxonomicStatus,  acceptedNameUsageID) %>% 
+  rbind(updated_wfo_backbone)
 # WFO 
-wfo_accepted_mapping<- wfo_backbone[taxonomicStatus == "Accepted"]
-wfo_synonym_mapping <- wfo_backbone[taxonomicStatus == "Synonym"]
+wfo_accepted_mapping<- wfo_backbone2[taxonomicStatus == "Accepted"]
+wfo_synonym_mapping <- wfo_backbone2[taxonomicStatus == "Synonym"]
 non_unique_accepted_names <- wfo_accepted_mapping[, .N, by = "scientificName"]# Identify non unique names 
 # Create a simplified version of each respective dt, then attach synonyms
 accepted_mapping <- wfo_accepted_mapping[, c("taxonID", "scientificName"), with = FALSE]
 synonym_mapping <- wfo_synonym_mapping[, c("scientificName", "acceptedNameUsageID"), with = FALSE]
+
+# Append acceptedNameUsageID with that of its parent taxon. wf
 # Subset the backbone for our needs 
 wfo_df_accepted <- matched_names_wfo[taxonomicStatus == "Accepted"]
 wfo_df_synonym <- matched_names_wfo[taxonomicStatus == "Synonym"]
@@ -238,7 +278,6 @@ wfo_relations_f <- wfo_relations %>%
   filter(acceptedName %in% wfo_df_accepted$nameMatch | synonyms %in% wfo_df_synonym$nameMatch) %>% 
   mutate(catalogID = "wfo") %>% 
   distinct(taxonID, acceptedName, synonyms, .keep_all = TRUE)
-
 ## other catalogues
 # Load catalogues 
 col <-taxa_tbl("col") %>%
@@ -533,8 +572,17 @@ final_synonym_count <- final_df8 %>%
   distinct(synonym, synonymNameSpacelessWFOAuthorship) %>% 
   nrow()
 
+final_multiple_map_on_synonym_count <- final_df8 %>% 
+  mutate(copy = case_when(
+    acceptedName == synonym ~ TRUE,
+    acceptedName != synonym ~ FALSE
+  )) %>% 
+  filter(copy == FALSE & synonymMultipleMapsPossible == TRUE) %>% 
+  distinct(synonym, synonymNameSpacelessWFOAuthorship) %>% 
+  nrow()
 
 
+fwrite(final_df8, "/home/jt-miller/Gurlab/BoCP/data/processed/finalized_name_alignment.csv")
   
   
   
