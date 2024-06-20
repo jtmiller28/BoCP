@@ -3,7 +3,7 @@
 # Date: 06-19-2024
 # Project: BoCP 
 
-## Load Dependencies 
+## Load Libraries
 library(data.table)
 library(tidyverse)
 library(rgnparser)
@@ -221,50 +221,47 @@ gbif_df <- coal_df %>%
 
 
 
-### Attach Synonyms: WFO and other catalogues
-## Edit: The below code is not necessary for wcvp as they match to higher taxonomy? Check this in the outputs. 
-## 6/18/2024 edit: Add in subspecific designations to parent taxon when they are accepted names within WFO's taxonomy
+### Attach Synonyms: wcvp
 # First find the accepted subspecific assignments
-# wfo_backbone_subspecific <- wfo_backbone %>% 
-#   filter(taxonRank %in% c("variety", "subspecies", "form", "subvariety", "subform")) %>% 
-#   filter(taxonomicStatus == "Accepted")
+wcvp_backbone_subspecific <- wcvp_backbone %>%
+  filter(taxon_rank %in% c("Variety", "Subspecies", "Form", "Subvariety", "Subform", "Convariety", "subspecioid")) %>%
+  filter(taxon_status == "Accepted")
 # Find what their parent taxon is 
-# wfo_backbone_subspecific <- wfo_backbone_subspecific %>% 
-#   mutate(parentTaxon = stringr::word(scientificName, 1, 2)) %>% 
-#   mutate(taxonomicStatus = "Synonym") # manually change these to Synonyms.
+wcvp_backbone_subspecific <- wcvp_backbone_subspecific %>%
+  mutate(parentTaxon = stringr::word(taxon_name, 1, 2)) %>%
+  mutate(taxon_status = "Synonym") # manually change these to Synonyms.
 
-# updated_wfo_backbone <- merge(wfo_backbone, wfo_backbone_subspecific, by.x = "scientificName", by.y = "parentTaxon")
-# updated_wfo_backbone <- updated_wfo_backbone %>% 
-#   mutate(statusMatch = ifelse(taxonomicStatus.x == taxonomicStatus.y, TRUE, FALSE)) %>% 
-#   filter(statusMatch == FALSE) %>%  # grab the cases we designed
-#   mutate(acceptedNameUsageID.y = ifelse(acceptedNameUsageID.y == "", taxonID.x, acceptedNameUsageID.y)) %>%  
-#   rename(acceptedNameUsageID = acceptedNameUsageID.y, parentTaxon = scientificName, scientificName = scientificName.y, 
-#          scientificNameAuthorship = scientificNameAuthorship.y, taxonomicStatus = taxonomicStatus.y,
-#          taxonID = taxonID.x) %>% 
-#   select(taxonID, scientificName, scientificNameAuthorship, parentTaxon, taxonomicStatus,  acceptedNameUsageID, taxonID) 
+updated_wcvp_backbone <- merge(wcvp_backbone, wcvp_backbone_subspecific, by.x = "taxon_name", by.y = "parentTaxon")
+updated_wcvp_backbone <- updated_wcvp_backbone %>%
+  mutate(statusMatch = ifelse(taxon_status.x == taxon_status.y, TRUE, FALSE)) %>%
+  filter(statusMatch == FALSE) %>%  # grab the cases we designed
+  #mutate(accepted_plant_name_id.y = ifelse(accepted_plant_name_id.y == "", accepted_plant_name_id.x, accepted_plant_name_id.y)) %>%
+  rename(accepted_plant_name_id = accepted_plant_name_id.x, parentTaxon = taxon_name, taxon_name = taxon_name.y,
+         taxon_authors = taxon_authors.y, taxon_status = taxon_status.y, powo_id = powo_id.y) %>%
+  select(accepted_plant_name_id, taxon_name, taxon_authors, parentTaxon, taxon_status, powo_id)
 
-# test_mult_maps <- updated_wfo_backbone %>%
-#   group_by(scientificName) %>%
-#   mutate(num_different_paths = n_distinct(taxonomicStatus)) 
-# 
-# test_multiple_mappings <- test_mult_maps  %>% # tis all good! 
-#   filter(num_different_paths > 1)
+test_mult_maps <- updated_wcvp_backbone %>%
+  group_by(taxon_name) %>%
+  mutate(num_different_paths = n_distinct(taxon_status))
 
-# wfo_backbone2 <- wfo_backbone %>% 
-#   filter(!scientificName %in% updated_wfo_backbone$scientificName)
-# 
-# wfo_backbone2 <- wfo_backbone2 %>% 
-#   mutate(parentTaxon = NA) %>% 
-#   select(taxonID, scientificName, scientificNameAuthorship, parentTaxon, taxonomicStatus,  acceptedNameUsageID) %>% 
-#   rbind(updated_wfo_backbone)
+test_multiple_mappings <- test_mult_maps  %>% # tis all good!
+  filter(num_different_paths > 1)
+
+wcvp_backbone2 <- wcvp_backbone %>% 
+   filter(!taxon_name %in% updated_wcvp_backbone$taxon_name)
+ 
+wcvp_backbone2 <- wcvp_backbone2 %>%
+  mutate(parentTaxon = NA) %>%
+  select(accepted_plant_name_id, taxon_name, taxon_authors, parentTaxon, taxon_status, powo_id) %>%
+  rbind(updated_wcvp_backbone)
 
 # WCVP Mapping of Names 
-wcvp_accepted_mapping <- wcvp_backbone[taxon_status == "Accepted"]
-wcvp_synonym_mapping <- wcvp_backbone[taxon_status %in% c("Synonym", "Illegitimate", "Invalid", "Misapplied", "Orthographic")] # all will be regarded as equivalent for the purposes of mapping.
+wcvp_accepted_mapping <- wcvp_backbone2[taxon_status == "Accepted"]
+wcvp_synonym_mapping <- wcvp_backbone2[taxon_status %in% c("Synonym", "Illegitimate", "Invalid", "Misapplied", "Orthographic")] # all will be regarded as equivalent for the purposes of mapping.
 non_unique_accepted_names <- wcvp_accepted_mapping[, .N, by = "taxon_name"]# Identify non unique names 
 # Create a simplified version of each respective dt, then attach synonyms
 accepted_mapping <- wcvp_accepted_mapping[, c("accepted_plant_name_id", "taxon_name", "powo_id"), with = FALSE]
-synonym_mapping <- wcvp_synonym_mapping[, c("accepted_plant_name_id", "taxon_name", "powo_id"), with = FALSE]
+synonym_mapping <- wcvp_synonym_mapping[, c("accepted_plant_name_id", "taxon_name", "powo_id", "taxon_authors"), with = FALSE]
 
 # Append acceptedNameUsageID with that of its parent taxon. 
 matched_names_wcvp <- matched_names_wcvp %>% data.table()  %>% as.data.table() # awful black magic is required to solve internal indexing errors
@@ -277,6 +274,7 @@ wcvp_relations <- wcvp_relations %>%
 # subset backbone for our list of name matched taxa
 wcvp_relations_f <- wcvp_relations %>%  
   filter(acceptedName %in% wcvp_df_accepted$nameMatch | synonyms %in% wcvp_df_synonym$nameMatch) %>% 
+  rename(synonym_taxon_authors = taxon_authors) %>% 
   mutate(catalogID = "wcvp") %>% 
   distinct(accepted_plant_name_id, acceptedName, synonyms, catalogID, acceptedNamePOWO_ID, synonymPOWO_ID, .keep_all = TRUE)
 
@@ -515,79 +513,65 @@ final_synonym_count <- final_df %>%
   group_by(synonyms) %>% 
   mutate(n = n())
 
+# Create a join to list authorship and multiple mapping statuses 
+accepted_matched_names_wcvp <- filter(matched_names_wcvp, taxon_status == "Accepted")
+accepted_half_merge <- merge(final_df, accepted_matched_names_wcvp, by.x = "acceptedNamePOWO_ID", by.y = "powo_id")
+synonym_matched_names_wcvp <- filter(matched_names_wcvp, taxon_status != "Accepted")
+synonym_half_merge <- merge(final_df, synonym_matched_names_wcvp, by.x = "synonymPOWO_ID", by.y = "powo_id") 
+final_df2 <- rbind(accepted_half_merge, synonym_half_merge)
+final_df3 <- distinct(final_df2, accepted_plant_name_id, acceptedName, acceptedNamePOWO_ID, synonyms, synonymPOWO_ID, synonym_taxon_authors, catalogID, authorship, multipleMappingsPossible, spacelessOurAuthorship, spacelessWCVPAuthorship, authorshipMatch, multMapAuthorshipMatch, multMapResolutionPossible)
 # There are cases where there are repeated synonyms for the same accepted name, this is presumably due to synonyms having multiple mapping paths depending on their underlying authorship. Lets resolve this. 
-final_df2 <- merge(final_df, matched_names_wcvp, by.x = "taxonID", by.y = "taxonomicSourceID", all.x = TRUE)
-final_df2 <- select(final_df2, names(final_df), scientificNameAuthorship, multipleMappingsPossible, spacelessWFOAuthorship, authorshipMatch, multMapResolutionPossible)
-final_df3 <- final_df2 %>% # rename for clarity that our multiple mapping resolution was depedent on the acceptedNames, now we need to deal with the synonyms
-  rename(acceptedNameScientificNameAuthorship = scientificNameAuthorship,
+#final_df2 <- merge(final_df, matched_names_wcvp, by.x = "taxonID", by.y = "taxonomicSourceID", all.x = TRUE)
+#final_df2 <- select(final_df2, names(final_df), scientificNameAuthorship, multipleMappingsPossible, spacelessWFOAuthorship, authorshipMatch, multMapResolutionPossible)
+final_df4 <- final_df3 %>% # rename for clarity that our multiple mapping resolution was depedent on the acceptedNames, now we need to deal with the synonyms
+  rename(acceptedNameScientificNameAuthorship = authorship,
          acceptedNameMultMapsPossible = multipleMappingsPossible,
-         acceptedNameSpacelessWFOAuthorship = spacelessWFOAuthorship, 
+         acceptedNameSpacelessWCVPAuthorship = spacelessWCVPAuthorship, 
          acceptedNameAuthorshipMatch = authorshipMatch,
-         acceptedNameMultMapResolutionPossible =  multMapResolutionPossible)
+         acceptedNameMultMapResolutionPossible =  multMapResolutionPossible, 
+         synonymNameWCVPAuthorship = synonym_taxon_authors)
 
-# merge synonymy, create spaceless authorship
-wfo_backbone_s <- wfo_backbone %>% 
-  filter(scientificName %in% final_df3$synonyms) %>% 
-  group_by(scientificName) %>% 
-  mutate(numDiffAcceptedPaths = n_distinct(acceptedNameUsageID)) %>% 
-  ungroup()
+# Assure multiple maps prior to simplifying 
+multiple_s_mappings <- final_df4 %>% 
+  group_by(synonyms) %>% 
+  mutate(numDiffAcceptedNames = length(unique((acceptedName))))
+syn_mult_maps <- filter(final_df4 , multiple_s_mappings$numDiffAcceptedNames > 1)
 
-multiple_s_mappings <- wfo_backbone_s %>% 
-  filter(numDiffAcceptedPaths > 1)
+final_df4$synonymMultMapPossible <- ifelse(final_df4$synonyms %in% syn_mult_maps$synonyms, TRUE, FALSE)
 
-multiple_s_mappings <- multiple_s_mappings %>%  
-  mutate(synonymNameSpacelessWFOAuthorship = gsub(" ", "", scientificNameAuthorship)) # remove spacing 
-
-
-final_df4 <- final_df3 %>%
-  mutate(synonymMultipleMapsPossible = case_when(
-    catalogID != "wfo" ~ NA,
-    synonyms %in% multiple_s_mappings$scientificName ~ TRUE,
-    TRUE ~ FALSE
-  ))
-
-multiple_s_mappings_fields <- multiple_s_mappings %>% 
-  select(taxonID, scientificName, synonymNameSpacelessWFOAuthorship, acceptedNameUsageID) %>% 
-  rename(synonym = scientificName) %>% 
-  mutate(source = "df1")
-
-final_df5 <- final_df4 %>% 
-  rename(acceptedNameUsageID = taxonID) %>% 
-  rename(synonym = synonyms) %>% 
-  mutate(source = "df2")
-
-final_df6 <- merge(final_df5, multiple_s_mappings_fields, by = c("synonym", "acceptedNameUsageID"), all.x = TRUE)
-
-final_df7 <- final_df6 %>%  select(acceptedName, synonym, acceptedNameUsageID, catalogID, a_dupes, s_breaks, priority, acceptedNameSpacelessWFOAuthorship, synonymNameSpacelessWFOAuthorship, acceptedNameMultMapResolutionPossible, synonymMultipleMapsPossible, source.x, source.y)
-
-final_df8 <- final_df7 %>% 
-  distinct(acceptedName, synonym, acceptedNameUsageID, catalogID, a_dupes, s_breaks, priority, acceptedNameSpacelessWFOAuthorship, synonymNameSpacelessWFOAuthorship, acceptedNameMultMapResolutionPossible, synonymMultipleMapsPossible,.keep_all = TRUE)
-
-length(unique(final_df8$acceptedName))
-
-final_synonym_count <- final_df8 %>% 
+final_synonym_count <- final_df4 %>% 
   mutate(copy = case_when(
-    acceptedName == synonym ~ TRUE,
-    acceptedName != synonym ~ FALSE
+    acceptedName == synonyms ~ TRUE,
+    acceptedName != synonyms ~ FALSE
   )) %>% 
   filter(copy == FALSE) %>% 
-  distinct(synonym, synonymNameSpacelessWFOAuthorship) %>% 
+  distinct(synonyms, synonymNameWCVPAuthorship) %>% 
   nrow()
 
-final_multiple_map_on_synonym_count <- final_df8 %>% 
+final_multiple_map_on_synonym_count <- final_df4 %>% 
   mutate(copy = case_when(
-    acceptedName == synonym ~ TRUE,
-    acceptedName != synonym ~ FALSE
+    acceptedName == synonyms ~ TRUE,
+    acceptedName != synonyms ~ FALSE
   )) %>% 
-  filter(copy == FALSE & synonymMultipleMapsPossible == TRUE) %>% 
-  distinct(synonym, synonymNameSpacelessWFOAuthorship) %>% 
+  filter(copy == FALSE & synonymMultMapPossible == TRUE) %>% 
+  distinct(synonyms, synonymNameWCVPAuthorship) %>% 
   nrow()
 
-final_df9 <- final_df8 %>% 
-  select(-source.x, -source.y, -a_dupes, -s_breaks, -priority)
 
 
-fwrite(final_df9, "/home/jt-miller/Gurlab/BoCP/data/processed/finalized_name_alignment_wcvp.csv")
+final_df5 <- final_df4 %>% 
+  mutate(synonymNameSpacelessWCVPAuthorship = gsub(" ", "", synonymNameWCVPAuthorship))
+
+final_df6 <- final_df5 %>% 
+  mutate(remove = case_when(
+    catalogID == "wcvp" & is.na(acceptedNameMultMapsPossible) ~ TRUE, 
+    TRUE ~ FALSE )
+) %>% 
+  filter(!remove == TRUE) %>% 
+  select(-remove)
+
+
+fwrite(final_df6, "/home/jt-miller/Gurlab/BoCP/data/processed/finalized_name_alignment_wcvp.csv")
 
 
 
