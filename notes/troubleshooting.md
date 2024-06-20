@@ -41,4 +41,24 @@ To do on the Horizon:
 - ~~Need to make a dataframe that takes all of these and builds a relation table~~
 - ~~Need to double check that no synonyms double up across the catalogues (or even within catalogs after looking at the organization...)~~
 - Need to attach Native/Non-Native statuses for each species and its corresponding names. Might be a bit challenging as this requires either A) Aligning with WCVP's taxonomy then checking N/NonN status, or B) ... unsure actually
-- Need to create a count loop that sums up the number of records expected for each species. This is complicated given the code currently. Try gbifdb IF possible...  
+- Need to create a count loop that sums up the number of records expected for each species. This is complicated given the code currently. Try gbifdb IF possible...
+
+
+### 06/19/2024 CHANGES
+We are adapting wcvp instead of WFO in order to accomidate phylogenetic issues. Rewriting, but noting things I have quesstions about during the adaptation. 
+- Biotypes, not exactly sure whether these should or shouldnt be applicable for harmonization. Keeping for now but check with other's about this designation status
+- Seems that the cases of multiple mappings within WCVP that I've checked are due to subspecific levels of desigation, rather than fully alternative names. 
+- Appears that the class illegitimate for the field taxon_status does not actually mean its unusable, it just means that name should be classified alternatively? 
+Current Report for wcvp alignment with North american name list 
+Accepted: 30179 Names
+Illegitimate: 117 Names
+Invalid: 5 Names
+Misapplied: 4 Names
+Orthographic: 4 Names
+Synonym: 3573 Names
+Unplaced: 66 Names
+NA: 355 Names 
+Of these NA names, coalescent resolution harmonized 252 of these names, leaving a remaining 103 unresolved. All togetherthat is 169 names without placement from our NA list. 
+
+Finalized Accepted Name Count: 33239 Names, Finalized Synonym Count 120,744
+  
