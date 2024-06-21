@@ -61,4 +61,8 @@ NA: 355 Names
 Of these NA names, coalescent resolution harmonized 252 of these names, leaving a remaining 103 unresolved. All togetherthat is 169 names without placement from our NA list. 
 
 Finalized Accepted Name Count: 33239 Names, Finalized Synonym Count 120,744
-  
+
+06/21/2024
+Edge case issue with alignment: 
+Abies lasiocarpa var. arizonica is being mapped to both Abies grandis and Abies lasiocarpa with identical synonym authorship. Abies grandis shouldnt be mapped to at all, so something is problematic in this regard. 
+ 
