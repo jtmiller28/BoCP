@@ -86,7 +86,7 @@ matched_names <- matched_names %>%
     multipleMappingsPossible & authorshipMatch != TRUE ~ FALSE))
 
 ## Check to make sure that mapping is 1:1 while accounting for authorship in multiple mappings.
-mapping_check_df <- matched_names %>% 
+resolvable_names_df <- matched_names %>% 
   filter(multipleMappingsPossible == TRUE) %>% 
   filter(multMapAuthorshipMatch == TRUE) %>% 
   group_by(nameMatch) %>% 
@@ -97,7 +97,7 @@ mapping_check_df <- matched_names %>%
 ## Create a field called multMapResolutionPossible that denotes whether in case there is multiple maps if AuthorshipMatch is possible, else other cases
 matched_names <- matched_names %>% 
   mutate(multMapResolutionPossible = case_when(
-    nameMatch %in% resolved_df$nameMatch & multMapAuthorshipMatch == TRUE ~ TRUE,
+    nameMatch %in% resolvable_names_df$nameMatch & multMapAuthorshipMatch == TRUE ~ TRUE,
     multipleMappingsPossible == FALSE ~ NA, # if we dont need this leave as NA
     TRUE ~ FALSE # else make it false...
   ))
@@ -214,13 +214,301 @@ wcvp_relations <- wcvp_relations %>%
 wcvp_df_accepted <- matched_names_wcvp[taxon_status == "Accepted"]
 wcvp_df_synonym <- matched_names_wcvp[taxon_status != "Accepted"] # all other cases
 wcvp_relations_na <- wcvp_relations %>% 
-  filter(acceptedName %in% wcvp_df_accepted$nameMatch | synonym %in% wcvp_df_synonym$nameMatch) %>% 
+  filter(acceptedName %in% wcvp_df_accepted$nameMatch | synonym %in% wcvp_df_synonym$nameMatch | acceptedNameParent %in% wcvp_df_accepted$nameMatch | acceptedNameParent %in% wcvp_df_synonym$nameMatch) %>% 
   select(-word_count) %>% # no longer necessary. 
   mutate(catalogID = "wcvp")
 
-## COL 
+### COL 
 col <- taxa_tbl("col") %>% 
   select(scientificName,taxonRank,acceptedNameUsageID,taxonomicStatus) %>%
   filter(taxonRank == "species")
 
+# Load into memory, convert to data.table for faster operations
 col_names <- col %>% collect() # load into memory
+col_names <- as.data.table(col_names)
+
+# Organize by taxonomic status
+col_accepted_names <- col_names[taxonomicStatus == "accepted"]
+col_synonymous_names <- col_names[taxonomicStatus == "synonym"]
+
+# Check for ambigious mapping in COL on accepted names
+col_non_uniq_accepted_names <- col_accepted_names %>% 
+  group_by(scientificName) %>% 
+  mutate(multipleAcceptableUsageIDs = n_distinct(acceptedNameUsageID)) %>% 
+  filter(multipleAcceptableUsageIDs >= 2)
+
+# There are non-existent acceptedNameUsageIDs cluttering in the synonyms, 
+# first remove these, then check for multiple cases
+col_accepted_usage_ids <- unique(col_accepted_names$acceptedNameUsageID)
+col_synonymous_names <- col_synonymous_names[acceptedNameUsageID %in% col_accepted_usage_ids]
+col_non_uniq_synonymous_names <- col_synonymous_names %>% 
+  group_by(scientificName) %>% 
+  mutate(multipleAcceptableUsageIDs = n_distinct(acceptedNameUsageID)) %>% 
+  filter(multipleAcceptableUsageIDs >= 2)
+
+# these non-unique cases are true issues likely related to authorship. We're going to choose to drop them
+col_accepted_names_drop <- col_accepted_names[!scientificName %in% col_non_uniq_accepted_names$scientificName]
+col_synonymous_names_drop <- col_synonymous_names[!scientificName %in% col_non_uniq_synonymous_names$scientificName]
+
+# create relational table for COL taxonomy 
+col_relations <- merge(col_accepted_names_drop, col_synonymous_names_drop, by = "acceptedNameUsageID", all.x = TRUE)
+col_relations <- col_relations %>% 
+  rename(acceptedName = scientificName.x,
+         synonym = scientificName.y) %>% 
+  mutate(catalogID = "col")
+
+## Deal with infraspecifics in COL, also deal use regular expressions to deal with issues regarding [sensu lato]
+col_relations <- col_relations %>% 
+  mutate(acceptedName = gsub("\\[.*?\\]", "", acceptedName)) %>% 
+  mutate(acceptedName = gsub("  ", " ", acceptedName)) %>% 
+  mutate(synonym = gsub("\\[.*?\\]", "", synonym)) %>% 
+  mutate(synonym = gsub("  ", " ", synonym)) %>%
+  mutate(word_count = str_count(acceptedName, "\\s+") + 1) 
+
+# Duplicate these infraspecific instances into the synonymy so we know that they exist
+col_relations <- col_relations %>% 
+  rename(accepted_name_taxon_rank = taxonRank.x,
+         synonym_name_taxon_rank = taxonRank.y,
+         accepted_taxon_status = taxonomicStatus.x,
+         synonym_taxon_status = taxonomicStatus.y) %>% 
+  bind_rows(col_relations %>% 
+              filter(word_count > 2) %>% 
+              distinct(acceptedName, .keep_all = TRUE) %>% 
+              mutate(synonym = acceptedName)) %>% 
+  mutate(acceptedNameParent = ifelse(word_count > 2,
+                                     stringr::word(acceptedName, 1, 2),
+                                     acceptedName)
+              )
+# Filter name relations in COL down to North American plants 
+col_df <- coal_df %>% 
+  filter(source == "col")
+col_df <- col_df[, colTaxonomicStatus := ifelse(nameMatch == nameAligned, "ACCEPTED", "SYNONYM")]
+col_df_accepted <- col_df[colTaxonomicStatus == "ACCEPTED"]
+col_df_synonym <- col_df[colTaxonomicStatus == "SYNONYM"]
+col_relations_na <- col_relations %>% 
+  filter(acceptedName %in% col_df_accepted$nameMatch | synonym %in% col_df_synonym$nameMatch) %>% 
+  select(-word_count) %>% 
+  rename(taxonID = acceptedNameUsageID) %>% 
+  select(taxonID, acceptedName, synonym, catalogID)
+
+### ITIS 
+itis <- taxa_tbl("itis") %>% 
+  select(scientificName,taxonRank,acceptedNameUsageID,taxonomicStatus) %>%
+  filter(taxonRank == "species")
+
+# Load into memory, convert to data.table for faster operations
+itis_names <- itis %>% collect() # load into memory
+itis_names <- as.data.table(itis_names)
+
+# Organize by taxonomic status
+itis_accepted_names <- itis_names[taxonomicStatus == "accepted"]
+itis_synonymous_names <- itis_names[taxonomicStatus == "synonym"]
+
+# Check for ambigious mapping in itis on accepted names
+itis_non_uniq_accepted_names <- itis_accepted_names %>% 
+  group_by(scientificName) %>% 
+  mutate(multipleAcceptableUsageIDs = n_distinct(acceptedNameUsageID)) %>% 
+  filter(multipleAcceptableUsageIDs >= 2)
+
+# There are non-existent acceptedNameUsageIDs cluttering in the synonyms, 
+# first remove these, then check for multiple cases
+itis_accepted_usage_ids <- unique(itis_accepted_names$acceptedNameUsageID)
+itis_synonymous_names <- itis_synonymous_names[acceptedNameUsageID %in% itis_accepted_usage_ids]
+itis_non_uniq_synonymous_names <- itis_synonymous_names %>% 
+  group_by(scientificName) %>% 
+  mutate(multipleAcceptableUsageIDs = n_distinct(acceptedNameUsageID)) %>% 
+  filter(multipleAcceptableUsageIDs >= 2)
+
+# these non-unique cases are true issues likely related to authorship. We're going to choose to drop them
+itis_accepted_names_drop <- itis_accepted_names[!scientificName %in% itis_non_uniq_accepted_names$scientificName]
+itis_synonymous_names_drop <- itis_synonymous_names[!scientificName %in% itis_non_uniq_synonymous_names$scientificName]
+
+# create relational table for itis taxonomy 
+itis_relations <- merge(itis_accepted_names_drop, itis_synonymous_names_drop, by = "acceptedNameUsageID", all.x = TRUE)
+itis_relations <- itis_relations %>% 
+  rename(acceptedName = scientificName.x,
+         synonym = scientificName.y) %>% 
+  mutate(catalogID = "itis")
+
+## Deal with infraspecifics in itis
+itis_relations <- itis_relations %>% 
+  mutate(word_count = str_count(acceptedName, "\\s+") + 1) 
+
+# Duplicate these infraspecific instances into the synonymy so we know that they exist
+itis_relations <- itis_relations %>% 
+  rename(accepted_name_taxon_rank = taxonRank.x,
+         synonym_name_taxon_rank = taxonRank.y,
+         accepted_taxon_status = taxonomicStatus.x,
+         synonym_taxon_status = taxonomicStatus.y) %>% 
+  bind_rows(itis_relations %>% 
+              filter(word_count > 2) %>% 
+              distinct(acceptedName, .keep_all = TRUE) %>% 
+              mutate(synonym = acceptedName)) %>% 
+  mutate(acceptedNameParent = ifelse(word_count > 2,
+                                     stringr::word(acceptedName, 1, 2),
+                                     acceptedName)
+  )
+# Filter name relations in itis down to North American plants 
+itis_df <- coal_df %>% 
+  filter(source == "itis")
+itis_df <- itis_df[, itisTaxonomicStatus := ifelse(nameMatch == nameAligned, "ACCEPTED", "SYNONYM")]
+itis_df_accepted <- itis_df[itisTaxonomicStatus == "ACCEPTED"]
+itis_df_synonym <- itis_df[itisTaxonomicStatus == "SYNONYM"]
+itis_relations_na <- itis_relations %>% 
+  filter(acceptedName %in% itis_df_accepted$nameMatch | synonym %in% itis_df_synonym$nameMatch) %>% 
+  select(-word_count) %>% 
+  rename(taxonID = acceptedNameUsageID) %>% 
+  select(taxonID, acceptedName, synonym, catalogID)
+
+### GBIF 
+gbif <- taxa_tbl("gbif") %>% 
+  select(scientificName,taxonRank,acceptedNameUsageID,taxonomicStatus) %>%
+  filter(taxonRank == "species")
+
+# Load into memory, convert to data.table for faster operations
+gbif_names <- gbif %>% collect() # load into memory
+gbif_names <- as.data.table(gbif_names)
+
+# Organize by taxonomic status
+gbif_accepted_names <- gbif_names[taxonomicStatus == "accepted"]
+gbif_synonymous_names <- gbif_names[taxonomicStatus == "synonym"]
+
+# Check for ambigious mapping in gbif on accepted names
+gbif_non_uniq_accepted_names <- gbif_accepted_names %>% 
+  group_by(scientificName) %>% 
+  mutate(multipleAcceptableUsageIDs = n_distinct(acceptedNameUsageID)) %>% 
+  filter(multipleAcceptableUsageIDs >= 2)
+
+# There are non-existent acceptedNameUsageIDs cluttering in the synonyms, 
+# first remove these, then check for multiple cases
+gbif_accepted_usage_ids <- unique(gbif_accepted_names$acceptedNameUsageID)
+gbif_synonymous_names <- gbif_synonymous_names[acceptedNameUsageID %in% gbif_accepted_usage_ids]
+gbif_non_uniq_synonymous_names <- gbif_synonymous_names %>% 
+  group_by(scientificName) %>% 
+  mutate(multipleAcceptableUsageIDs = n_distinct(acceptedNameUsageID)) %>% 
+  filter(multipleAcceptableUsageIDs >= 2)
+
+# these non-unique cases are true issues likely related to authorship. We're going to choose to drop them
+gbif_accepted_names_drop <- gbif_accepted_names[!scientificName %in% gbif_non_uniq_accepted_names$scientificName]
+gbif_synonymous_names_drop <- gbif_synonymous_names[!scientificName %in% gbif_non_uniq_synonymous_names$scientificName]
+
+# create relational table for gbif taxonomy 
+gbif_relations <- merge(gbif_accepted_names_drop, gbif_synonymous_names_drop, by = "acceptedNameUsageID", all.x = TRUE)
+gbif_relations <- gbif_relations %>% 
+  rename(acceptedName = scientificName.x,
+         synonym = scientificName.y) %>% 
+  mutate(catalogID = "gbif")
+
+## Deal with infraspecifics in gbif
+gbif_relations <- gbif_relations %>% 
+  mutate(word_count = str_count(acceptedName, "\\s+") + 1) 
+
+# Duplicate these infraspecific instances into the synonymy so we know that they exist
+gbif_relations <- gbif_relations %>% 
+  rename(accepted_name_taxon_rank = taxonRank.x,
+         synonym_name_taxon_rank = taxonRank.y,
+         accepted_taxon_status = taxonomicStatus.x,
+         synonym_taxon_status = taxonomicStatus.y) %>% 
+  bind_rows(gbif_relations %>% 
+              filter(word_count > 2) %>% 
+              distinct(acceptedName, .keep_all = TRUE) %>% 
+              mutate(synonym = acceptedName)) %>% 
+  mutate(acceptedNameParent = ifelse(word_count > 2,
+                                     stringr::word(acceptedName, 1, 2),
+                                     acceptedName)
+  )
+# Filter name relations in gbif down to North American plants 
+gbif_df <- coal_df %>% 
+  filter(source == "gbif")
+gbif_df <- gbif_df[, gbifTaxonomicStatus := ifelse(nameMatch == nameAligned, "ACCEPTED", "SYNONYM")]
+gbif_df_accepted <- gbif_df[gbifTaxonomicStatus == "ACCEPTED"]
+gbif_df_synonym <- gbif_df[gbifTaxonomicStatus == "SYNONYM"]
+gbif_relations_na <- gbif_relations %>% 
+  filter(acceptedName %in% gbif_df_accepted$nameMatch | synonym %in% gbif_df_synonym$nameMatch) %>% 
+  select(-word_count) %>% 
+  rename(taxonID = acceptedNameUsageID) %>% 
+  select(taxonID, acceptedName, synonym, catalogID)
+
+### Combine North American Relational Tables
+# Combine the relational datatables
+relational_tb <- bind_rows(wcvp_relations_na, col_relations_na, itis_relations_na, gbif_relations_na)
+# Clean up acceptedNames that do not have associated synonyms, basically just adds the acceptedName as a synonym as well for clarity
+relational_tb <- relational_tb %>% 
+  mutate(synonym = case_when(
+    is.na(synonym) == TRUE ~ acceptedName, 
+    is.na(synonym) == FALSE ~ synonym
+  ))
+### Deal with duplications across taxonomic backbones
+# Write a fxn that flags duplicates for acceptedNames and synonyms
+add_duplication_flags <- function(df) {
+  df <- df %>%
+    group_by(acceptedName) %>%
+    mutate(a_dupes = n_distinct(catalogID)) %>%
+    ungroup() %>%
+    group_by(synonym) %>%
+    mutate(s_breaks = n_distinct(catalogID)) %>%
+    ungroup()
+  return(df)
+}
+relational_tb_wflags <- add_duplication_flags(relational_tb)
+priority_order <- c("wcvp", "col", "itis", "gbif")
+# Filter by priority to remove duplicate names 
+relational_tb_filtered <- relational_tb_wflags %>% 
+  mutate(priority = case_when(
+    a_dupes > 1 | s_breaks > 1  ~ match(catalogID, priority_order), 
+    TRUE ~ 0)) %>% 
+  group_by(acceptedName) %>% 
+  filter(priority == min(priority))  %>% 
+  ungroup() %>% 
+  group_by(synonym) %>% 
+  filter(priority == min(priority)) %>% 
+  ungroup()
+
+### Append Information for Multiple Mapping Statuses to this relational table 
+# Merge acceptedNames and Synonyms with the multiple mapping information we built prior 
+accepted_matched_names_wcvp <- filter(matched_names_wcvp, taxon_status == "Accepted")
+accepted_half_merge <- merge(relational_tb_filtered, accepted_matched_names_wcvp, by.x = "accepted_powo_id", by.y = "powo_id", all.x = TRUE)
+synonym_matched_names_wcvp <- filter(matched_names_wcvp, taxon_status != "Accepted")
+synonym_half_merge <- merge(relational_tb_filtered, synonym_matched_names_wcvp, by.x = "synonym_powo_id", by.y = "powo_id", all.y = TRUE) 
+merged_df <- rbind(accepted_half_merge, synonym_half_merge)
+
+# Assure distinct values only present after all those merges
+merged_d_df <- distinct(merged_df, accepted_plant_name_id, acceptedName, acceptedNameParent, accepted_powo_id, 
+                      synonym, synonym_powo_id, synonym_taxon_authors, catalogID, authorship, 
+                      multipleMappingsPossible, spacelessOurAuthorship, spacelessWCVPAuthorship, 
+                      authorshipMatch, multMapAuthorshipMatch, multMapResolutionPossible)
+
+# clean up naming on cols
+merged_dc_df <- merged_d_df %>% 
+  rename(acceptedNameScientificNameAuthorship = authorship,
+         acceptedNameMultMapsPossible = multipleMappingsPossible,
+         acceptedNameSpacelessWCVPAuthorship = spacelessWCVPAuthorship, 
+         acceptedNameAuthorshipMatch = authorshipMatch,
+         acceptedNameMultMapResolutionPossible =  multMapResolutionPossible, 
+         synonymNameWCVPAuthorship = synonym_taxon_authors)
+
+### Denote whether multiple mappings are possible for Synonyms  
+multiple_s_mappings <- merged_dc_df %>% 
+  group_by(synonym) %>% 
+  mutate(numDiffAcceptedNames = length(unique((acceptedName))))
+syn_mult_maps <- filter(merged_dc_df, multiple_s_mappings$numDiffAcceptedNames > 1)
+merged_dc_df$synonymMultMapPossible <- ifelse(merged_dc_df$synonym %in% syn_mult_maps$synonym, TRUE, FALSE)
+
+### Some other housekeeping 
+# remove caps and spaces to synonym authorship to match the format of our accepted name authors
+merged_dc_df <- merged_dc_df %>% 
+  mutate(synonymNameSpacelessWCVPAuthorship = tolower(gsub(" ", "", synonymNameWCVPAuthorship)))
+
+
+final_df <- merged_dc_df
+### Report 
+final_df %>% 
+  mutate(copy = case_when(
+    acceptedName == synonym ~ TRUE,
+    acceptedName != synonym ~ FALSE
+  )) %>% 
+  filter(copy == FALSE) %>% 
+  distinct(synonym, synonymNameWCVPAuthorship) %>% 
+  nrow()
+
+old_res <- fread("/home/jt-miller/Gurlab/BoCP/data/processed/finalized_name_alignment_wcvp.csv")
