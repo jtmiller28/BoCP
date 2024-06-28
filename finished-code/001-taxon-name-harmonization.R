@@ -1,4 +1,4 @@
-# 001-taxon-name-alignment wcvp rewrite
+# 001-taxon-name-harmonization (matches prototype 001-taxon-name-alignment-wcvp-rw.Rs)
 # Author: JT Miller 
 # Date: 06-25-2024
 # Project: BoCP 
@@ -81,7 +81,7 @@ matched_names$authorshipMatch <- matched_names$spacelessOurAuthorship == matched
 
 ## Create new a new field called multMapAuthorship match that requires authorship to match when multipleMappings is Possible
 matched_names <- matched_names %>% 
-    mutate(multMapAuthorshipMatch = case_when(
+  mutate(multMapAuthorshipMatch = case_when(
     multipleMappingsPossible & authorshipMatch == TRUE ~ TRUE, 
     multipleMappingsPossible & authorshipMatch != TRUE ~ FALSE))
 
@@ -157,7 +157,7 @@ coal_df <- match_df %>%
            source == "itis" ~ itis_id, 
            source == "gbif" ~ gbif_id,
            TRUE ~ NA_character_)
-         )
+  )
 
 ## Report successes and fails in coalescent resolution on the unmatched names 
 coal_df %>% filter(is.na(source)) %>% distinct(nameMatch) %>% nrow()
@@ -201,14 +201,14 @@ wcvp_relations <- wcvp_relations %>%
 # Being sure to associate the authorship if present into the synonymy. 
 wcvp_relations <- wcvp_relations %>% 
   bind_rows(wcvp_relations %>% 
-            filter(word_count > 2) %>% 
-            distinct(acceptedName, .keep_all = TRUE) %>% 
-            mutate(synonym = acceptedName, 
-                   synonym_taxon_authors = accepted_taxon_authors, 
-                   synonym_powo_id = accepted_powo_id)) %>% 
- mutate(acceptedNameParent = ifelse(word_count > 2, 
-                                   stringr::word(acceptedName, 1, 2), 
-                                   acceptedName))
+              filter(word_count > 2) %>% 
+              distinct(acceptedName, .keep_all = TRUE) %>% 
+              mutate(synonym = acceptedName, 
+                     synonym_taxon_authors = accepted_taxon_authors, 
+                     synonym_powo_id = accepted_powo_id)) %>% 
+  mutate(acceptedNameParent = ifelse(word_count > 2, 
+                                     stringr::word(acceptedName, 1, 2), 
+                                     acceptedName))
 
 ## Filter name relations down to North America Plants, utilizing an OR statement in acceptedNames or Synonyms
 wcvp_df_accepted <- matched_names_wcvp[taxon_status == "Accepted"]
@@ -278,7 +278,7 @@ col_relations <- col_relations %>%
   mutate(acceptedNameParent = ifelse(word_count > 2,
                                      stringr::word(acceptedName, 1, 2),
                                      acceptedName)
-              )
+  )
 # Filter name relations in COL down to North American plants 
 col_df <- coal_df %>% 
   filter(source == "col")
@@ -474,9 +474,9 @@ merged_df <- rbind(accepted_half_merge, synonym_half_merge)
 
 # Assure distinct values only present after all those merges
 merged_d_df <- distinct(merged_df, accepted_plant_name_id, acceptedName, acceptedNameParent, accepted_powo_id, 
-                      synonym, synonym_powo_id, synonym_taxon_authors, catalogID, authorship, 
-                      multipleMappingsPossible, spacelessOurAuthorship, spacelessWCVPAuthorship, 
-                      authorshipMatch, multMapAuthorshipMatch, multMapResolutionPossible)
+                        synonym, synonym_powo_id, synonym_taxon_authors, catalogID, authorship, 
+                        multipleMappingsPossible, spacelessOurAuthorship, spacelessWCVPAuthorship, 
+                        authorshipMatch, multMapAuthorshipMatch, multMapResolutionPossible)
 
 # clean up naming on cols
 merged_dc_df <- merged_d_df %>% 
