@@ -1,0 +1,32 @@
+Taxonomic Harmonization Steps and Procedures written:
+Initial name list for Plants of North America were acquired from "" 
+
+Names were read into R, and using global names resolver parsed into two fields genus+specificEpithet+(infraSpecificEpithet if applicable) & authorship
+
+Names that were hybrids were removed from the name list. 
+
+Creation of the North American Matched Names Table
+- Names were then left-joined with the wcvp backbone and tested for multiple mapping cases. Multiple Mapping cases are circumstances where a name (without authorship/authority) can map to multiple taxon statuses. These are cases of names that would require written authorship/authority for the occurrence in order to verify its true identity (An often missing piece in entered biodiversity data). These were tested for in the wcvp backbone, and noted as TRUE by the multipleMappingsPossible field. 
+- These joined names were then tested for authorship/authority match between our Ulloa Ulloa list and wcvp, this was done by removing capitiliztion and spaces from authorship then creating a new boolean field authorshipMatch. This field was built upon for conditional cases to denote when multiple mapping names had authorship matches (multMapAuthorshipMatch; boolean) and where multiple mapping resoltion was possible (multMapResolutionPossible; boolean). 
+- Taxon Status was then filtered for all versions that have valid associations either as an accepted name or form a relationship with the accepted names (synonym, illegitimate, misapplied, invalid, orthorgraphic). For names with the status of 'Unplaced' I remove, as according to Kew they are taxonomically dubious and therefore using alternative taxonomic resources to resolve them could be problematic. 
+- For names that had no status in wcvp (i.e. NAs), I matched them against the taxonomic databases COL, ITIS, and GBIF and coalesced relationships based on the following priority (COL > ITIS > GBIF). 
+
+Creating a Relational Table per Taxonomic Backbone (i.e. adding synonymy), 
+- the full taxonomic backbone for each catalouge was taken and split into acceptedName and synonym mapping tables. These tables were then joined into a relational table based on the accepted plant name id field. For all catalogues outside of WCVP I removed multiple mapping cases.
+- As accepted names could be subspecific levels of species (i.e. varities, subsp., forms, etc) I created a new field called acceptedNameParent. This field takes the two first word strings in the acceptedName field to build the genus + specificEpithet for any given taxon. I also duplicated the names that did contain infraspecific epithets, so that parentTaxonomy could have a synonym with the associated subspecific taxa. 
+- Names were then filtered down to only include North American plants by filtering the taxonomic backbones by the North American Matched Names Table in the name matches for both accepted names, synonyms, and parent accepted names. 
+- Some specific treatement for particular taxonomic backbones was required (i.e. removing subgenera notation in col by using regular expressions) 
+- Relational tables were then combined. I then wrote a function that flags duplicates of accepted names & synonyms across backbones. These flagged names were then removed via priority of wcvp > col > itis > gbif
+
+Combining the North American Matched Names Table with the Relational Table (i.e. appending synonymy)
+- Accepted names for the North American Matched Names were left joined with the wcvp relations to provide id relations. 
+- Synonym names "^"
+- These were then row-binded together, and distinct relations were assured.
+- Column naming was cleaned
+- Synonyms were further tested for multiple mapping properties, where detected these were removed. 
+- Hybrids were removed from final acceptedName resolution, but maintained in synonymy. 
+
+This relational table was then written as a csv. 
+The final report details that there are 41,673 acceptedNames (note these include variations of subspecific species) 
+acceptedParentSpecies includes 32,635 species (more to expectation) 
+Synonyms came out to 165,819 though it should be noted that these are artificially inflated as we copied the subspecific species into the varities for download purposes. 
