@@ -30,61 +30,83 @@ bench::bench_time({
   }
 })
 
-# Build a retry fxn in case we overping the API 
-failed_names_holder <- list() # Init a list in case failures occur
-retry_download <- function(i, retry_count) { # Build a retry_downloader fxn that proceeds to try if an API error occurs
-  if (retry_count >= 20) { # Allow up to 20 attempts (maximum of 10 minute cooling period)
-    failed_names_holder[[i]] <<- c(accepted_name_v[[i]], "Maximum retries exceeded", format(Sys.time(), "%a %b %d %X %Y")) # Customize the error handler 
+
+#################################### PROTOTYPE CODE ##########################################################################################
+### PROTO DW FXN
+# Initialize a list in case failures occur
+failed_names_holder <- list()
+
+# Recursive function for retrying download
+retry_download <- function(i, retry_count) {
+  if (retry_count >= 20) {
+    # Customize the error handler
+    failed_names_holder[[length(failed_names_holder) + 1]] <<- c(accepted_name_v[[i]], "Maximum retries exceeded", format(Sys.time(), "%a %b %d %X %Y"))
     failed_names_df <- as.data.frame(do.call(rbind, failed_names_holder))
     colnames(failed_names_df) <- c("acceptedParentName", "errorMsg", "timeStamp")
-    fwrite(failed_names_df, "/home/jtmiller/my_elements/jtmiller/BoCP/data/idigbio-dws/raw-dw-info-tbls/failed_names.csv", append = TRUE, col.names = FALSE)
-    return(NULL) # Null otherwise 
-  } # end of if condiitonal
+    # fwrite(failed_names_df, "/home/jtmiller/my_elements/jtmiller/BoCP/data/idigbio-dws/raw-dw-info-tbls/failed_names.csv", append = TRUE, col.names = FALSE)
+    return(NULL)
+  }
   
-  tryCatch({ # Try and Catch errors
-    occurrence_raw_dw <- gators_download_edited(name_list[[i]], 
-                                                call.idigbio = TRUE, 
-                                                call.gbif = FALSE)
-    
-    return(occurrence_raw_dw) # Return the raw dw
-    print("No Null Found")
-  }, error = function(e) { # create error report
-    if (e$message != "No records found.") { # If errors besides the following occurs, retry
-      Sys.sleep(retry_count*30)  # Apply time-cooling period: half a minute between API tries...
-      print(paste("Download attempt", retry_count + 1, "for", accepted_name_v[[i]], "failed. Retrying with delay", print(retry_count*30), "second delay"))
-      return(retry_download(i, retry_count + 1))  # Retry the download
+  # Try and Catch errors
+  result <- tryCatch({
+    occurrence_raw_dw <- gators_download_edited(name_list[[i]], call.idigbio = TRUE, call.gbif = FALSE)
+    return(occurrence_raw_dw)
+  }, error = function(e) {
+    if (e$message != "No Records Found.") {
+      Sys.sleep(retry_count * 30)
+      print(paste("Download attempt", retry_count + 1, "for", accepted_name_v[[i]], "failed. Retrying with delay", retry_count * 30, "second delay"))
+      return(retry_download(i, retry_count + 1))
     } else {
-      failed_names_holder[[i]] <<- c(accepted_name_v[[i]], e, format(Sys.time(), "%a %b %d %X %Y")) # Store other errors in our error handler as well. 
-      failed_names_df <- as.data.frame(do.call(rbind, failed_names_holder))
-      colnames(failed_names_df) <- c("acceptedParentName", "errorMsg", "timeStamp")
-      fwrite(failed_names_df, "/home/jtmiller/my_elements/jtmiller/BoCP/data/idigbio-dws/raw-dw-info-tbls/failed_names.csv", append = TRUE, col.names = FALSE)
+      # Only record the failure once per `i`
+      if (!any(sapply(failed_names_holder, function(x) x[1] == accepted_name_v[[i]]))) {
+        failed_names_holder[[length(failed_names_holder) + 1]] <<- c(accepted_name_v[[i]], e$message, format(Sys.time(), "%a %b %d %X %Y"))
+        failed_names_df <- as.data.frame(do.call(rbind, failed_names_holder))
+        colnames(failed_names_df) <- c("acceptedParentName", "errorMsg", "timeStamp")
+        fwrite(failed_names_df, "/home/jtmiller/my_elements/jtmiller/BoCP/data/idigbio-dws/raw-dw-info-tbls/failed_names.csv", append = TRUE, col.names = FALSE)
+      }
       return(NULL)
-      print("NULL found")
-    } # end of else of eror reporting
-  }) # end of try catch
-} # End of retry download fxn
-
-# Loop through Raw Data Downloads from iDigBio by Names
-
-for(i in 1:length(name_list)){
-  time_taken <- bench::bench_time({
-  occurrence_raw_dw <- retry_download(i,0) # see fxn above, retries in cases where API call fails
+    }
   })
-  print(paste("trying", accepted_name_v[[i]]))
-  if(!is.null(occurrence_raw_dw)){
+  
+  return(result)
+}
+
+# Function to print the loading bar
+print_loading_bar <- function(current, total) {
+  width <- 50
+  progress <- current / total
+  bar <- paste(rep("=", floor(progress * width)), collapse = "")
+  space <- paste(rep(" ", width - floor(progress * width)), collapse = "")
+  percentage <- sprintf("%3.0f%%", progress * 100)
+  cat(sprintf("\r|%s%s| %s", bar, space, percentage))
+}
+
+# Usage example:
+total_names <- length(accepted_name_v)
+
+# Usage example:
+for (j in 1:length(accepted_name_v)) {
+  time_taken <- bench::bench_time({
+  occurrence_data <- retry_download(j, 0)  # Initial call with retry_count set to 0
+  }) # end of bench time
+  if (!is.null(occurrence_data)) {
     info_df_temp <- data.frame(
-      acceptedParentName = accepted_name_v[[i]], # Store the acceptedNameParent 
-      numOccurrences = nrow(occurrence_raw_dw), # Store information on the number of occurrence records in raw download
+      acceptedParentName = accepted_name_v[[j]], # Store the acceptedNameParent 
+      numOccurrences = nrow(occurrence_data), # Store information on the number of occurrence records in raw download
       timeTaken = time_taken[["real"]] # Store the time (wall time) taken
     )
     fwrite(info_df_temp, file = "/home/jtmiller/my_elements/jtmiller/BoCP/data/idigbio-dws/raw-dw-info-tbls/raw-info-tbl.csv", append = TRUE, col.names = !file.exists("/home/jtmiller/my_elements/jtmiller/BoCP/data/idigbio-dws/raw-dw-info-tbls/raw-info-tbl.csv"))
-  
+    # Process the occurrence data if not NULL
+    print(paste("Calling data for", accepted_name_v[[j]]))
+    fwrite(occurrence_data, file = paste0("./data/idigbio-dws/raw/", accepted_name_filestyle_v[[j]], ".csv"))
+  } else {
+    print(paste("No data found for", accepted_name_v[[j]]))
   }
-  if(is.null(occurrence_raw_dw)){
-    next # skip to the next iteration if the download failed or has 0 data. 
-  }
-  
-  fwrite(occurrence_raw_dw, file = paste0("/home/jtmiller/my_elements/jtmiller/BoCP/data/idigbio-dws/raw/", accepted_name_filestyle_v[[i]], "-raw.csv"))
+  print_loading_bar(j, total_names)  # Update the loading bar
 }
+cat("\n")  # Move to a new line after the loading bar is complete
+
+
+
 
 
