@@ -30,9 +30,7 @@ bench::bench_time({
   }
 })
 
-
-#################################### PROTOTYPE CODE ##########################################################################################
-### PROTO DW FXN
+## Download with retry attempts
 # Initialize a list in case failures occur
 failed_names_holder <- list()
 
@@ -81,10 +79,10 @@ print_loading_bar <- function(current, total) {
   cat(sprintf("\r|%s%s| %s", bar, space, percentage))
 }
 
-# Usage example:
+# init name length
 total_names <- length(accepted_name_v)
 
-# Usage example:
+# Proceed to download occurrences 
 for (j in 1:length(accepted_name_v)) {
   time_taken <- bench::bench_time({
   occurrence_data <- retry_download(j, 0)  # Initial call with retry_count set to 0
