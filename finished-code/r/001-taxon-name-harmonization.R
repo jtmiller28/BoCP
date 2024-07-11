@@ -289,7 +289,7 @@ col_relations_na <- col_relations %>%
   filter(acceptedName %in% col_df_accepted$nameMatch | synonym %in% col_df_synonym$nameMatch) %>% 
   select(-word_count) %>% 
   rename(taxonID = acceptedNameUsageID) %>% 
-  select(taxonID, acceptedName, synonym, catalogID)
+  select(taxonID, acceptedName, acceptedNameParent, synonym, catalogID)
 
 ### ITIS 
 itis <- taxa_tbl("itis") %>% 
@@ -358,7 +358,7 @@ itis_relations_na <- itis_relations %>%
   filter(acceptedName %in% itis_df_accepted$nameMatch | synonym %in% itis_df_synonym$nameMatch) %>% 
   select(-word_count) %>% 
   rename(taxonID = acceptedNameUsageID) %>% 
-  select(taxonID, acceptedName, synonym, catalogID)
+  select(taxonID, acceptedName, acceptedNameParent, synonym, catalogID)
 
 ### GBIF 
 gbif <- taxa_tbl("gbif") %>% 
@@ -427,7 +427,7 @@ gbif_relations_na <- gbif_relations %>%
   filter(acceptedName %in% gbif_df_accepted$nameMatch | synonym %in% gbif_df_synonym$nameMatch) %>% 
   select(-word_count) %>% 
   rename(taxonID = acceptedNameUsageID) %>% 
-  select(taxonID, acceptedName, synonym, catalogID)
+  select(taxonID, acceptedName, acceptedNameParent, synonym, catalogID)
 
 ### Combine North American Relational Tables
 # Combine the relational datatables
@@ -517,5 +517,4 @@ final_df %>%
             acceptedNameParentLength = length(unique(acceptedNameParent)))
 
 fwrite(final_df, "/home/jt-miller/Gurlab/BoCP/data/processed/finalized_name_alignment_wcvp.csv")
-
 
