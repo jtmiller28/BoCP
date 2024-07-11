@@ -11,7 +11,7 @@ library(dplyr)
 # set working dir
 setwd("/blue/guralnick/millerjared/BoCP")
 # call edited gatoRs fxns
-source("finished-code/r/gatoRs-fxns-edited.R") # edited gatoRs fxns to allow for only pulling idigbio
+source("finished-code/r/gatoRs-fxns-edited.R") # edited gatoRs fxns to allow for only pulling gbif
 
 # Read in the name alignment
 name_alignment <- fread("./data/processed/finalized_name_alignment_wcvp.csv")
@@ -45,13 +45,13 @@ retry_download <- function(i, retry_count) {
     failed_names_holder[[length(failed_names_holder) + 1]] <<- c(accepted_name_v[[i]], "Maximum retries exceeded", format(Sys.time(), "%a %b %d %X %Y"))
     failed_names_df <- as.data.frame(do.call(rbind, failed_names_holder))
     colnames(failed_names_df) <- c("acceptedParentName", "errorMsg", "timeStamp")
-    fwrite(failed_names_df, "./data/idigbio-dws/raw-dw-info-tbls/failed_names.csv", append = TRUE, col.names = FALSE)
+    fwrite(failed_names_df, "./data/gbif-dws/raw-dw-info-tbls/failed_names.csv", append = TRUE, col.names = FALSE)
     return(NULL)
   }
   
   # Try and Catch errors
   result <- tryCatch({
-    occurrence_raw_dw <- gators_download_edited(name_list[[i]], call.idigbio = TRUE, call.gbif = FALSE)
+    occurrence_raw_dw <- gators_download_edited(name_list[[i]], call.idigbio = FALSE, call.gbif = TRUE)
     return(occurrence_raw_dw)
   }, error = function(e) {
     if (e$message != "No Records Found.") {
@@ -64,7 +64,7 @@ retry_download <- function(i, retry_count) {
         failed_names_holder[[length(failed_names_holder) + 1]] <<- c(accepted_name_v[[i]], e$message, format(Sys.time(), "%a %b %d %X %Y"))
         failed_names_df <- as.data.frame(do.call(rbind, failed_names_holder))
         colnames(failed_names_df) <- c("acceptedParentName", "errorMsg", "timeStamp")
-        fwrite(failed_names_df, "./data/idigbio-dws/raw-dw-info-tbls/failed_names.csv", append = TRUE, col.names = FALSE)
+        fwrite(failed_names_df, "./data/gbif-dws/raw-dw-info-tbls/failed_names.csv", append = TRUE, col.names = FALSE)
       }
       return(NULL)
     }
@@ -89,7 +89,7 @@ total_names <- length(accepted_name_v)
 # Proceed to download occurrences 
 for (j in 1:length(accepted_name_v)) {
   time_taken <- bench::bench_time({
-  occurrence_data <- retry_download(j, 0)  # Initial call with retry_count set to 0
+    occurrence_data <- retry_download(j, 0)  # Initial call with retry_count set to 0
   }) # end of bench time
   if (!is.null(occurrence_data)) {
     info_df_temp <- data.frame(
@@ -97,10 +97,10 @@ for (j in 1:length(accepted_name_v)) {
       numOccurrences = nrow(occurrence_data), # Store information on the number of occurrence records in raw download
       timeTaken = time_taken[["real"]] # Store the time (wall time) taken
     )
-    fwrite(info_df_temp, file = "./data/idigbio-dws/raw-dw-info-tbls/raw-info-tbl.csv", append = TRUE, col.names = !file.exists("./data/idigbio-dws/raw-dw-info-tbls/raw-info-tbl.csv"))
+    fwrite(info_df_temp, file = "./data/gbif-dws/raw-dw-info-tbls/raw-info-tbl.csv", append = TRUE, col.names = !file.exists("./data/gbif-dws/raw-dw-info-tbls/raw-info-tbl.csv"))
     # Process the occurrence data if not NULL
     print(paste("Calling data for", accepted_name_v[[j]]))
-    fwrite(occurrence_data, file = paste0("./data/idigbio-dws/raw/", accepted_name_filestyle_v[[j]], ".csv"))
+    fwrite(occurrence_data, file = paste0("./data/gbif-dws/raw/", accepted_name_filestyle_v[[j]], ".csv"))
   } else {
     print(paste("No data found for", accepted_name_v[[j]]))
   }
