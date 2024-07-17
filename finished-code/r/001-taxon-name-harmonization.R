@@ -110,7 +110,8 @@ matched_names %>%
 
 ## Remove the multiple matching names that cannot be resolved via authorship
 matched_names <- matched_names %>% 
-  filter(multMapResolutionPossible == TRUE & multipleMappingsPossible == TRUE | multipleMappingsPossible == FALSE)
+  filter(multMapResolutionPossible == TRUE & multipleMappingsPossible == TRUE | multipleMappingsPossible == FALSE) %>% 
+  mutate(authorshipInAcceptedName = ifelse(taxon_status == "Accepted", TRUE, FALSE))
 
 ## Create a summary of alignment status 
 alignment_summary <- matched_names %>% 
@@ -474,18 +475,24 @@ merged_df <- rbind(accepted_half_merge, synonym_half_merge)
 
 # Assure distinct values only present after all those merges
 merged_d_df <- distinct(merged_df, accepted_plant_name_id, acceptedName, acceptedNameParent, accepted_powo_id, 
-                        synonym, synonym_powo_id, synonym_taxon_authors, catalogID, authorship, 
+                        synonym, synonym_powo_id, synonym_taxon_authors, catalogID, accepted_taxon_authors, authorship,
                         multipleMappingsPossible, spacelessOurAuthorship, spacelessWCVPAuthorship, 
-                        authorshipMatch, multMapAuthorshipMatch, multMapResolutionPossible)
+                        authorshipMatch, multMapAuthorshipMatch, multMapResolutionPossible, authorshipInAcceptedName)
 
 # clean up naming on cols
 merged_dc_df <- merged_d_df %>% 
-  rename(acceptedNameScientificNameAuthorship = authorship,
-         acceptedNameMultMapsPossible = multipleMappingsPossible,
+  mutate(acceptedNameScientificNameAuthorship = case_when( # added this casewhen conditional to deal with some of the complexities concerning when things are actually multiple mapping and their accepted authorship.
+    authorshipInAcceptedName == TRUE & !is.na(authorship) ~ authorship, 
+    authorshipInAcceptedName == FALSE ~ accepted_taxon_authors, 
+    is.na(authorshipInAcceptedName) ~ accepted_taxon_authors,
+    authorshipInAcceptedName == TRUE & is.na(authorship) ~ accepted_taxon_authors)) %>% 
+  rename(acceptedNameMultMapsPossible = multipleMappingsPossible,
          acceptedNameSpacelessWCVPAuthorship = spacelessWCVPAuthorship, 
          acceptedNameAuthorshipMatch = authorshipMatch,
          acceptedNameMultMapResolutionPossible =  multMapResolutionPossible, 
-         synonymNameWCVPAuthorship = synonym_taxon_authors)
+         synonymNameWCVPAuthorship = synonym_taxon_authors) %>% 
+  mutate(acceptedNameScientificNameAuthorship = gsub(" ", "", acceptedNameScientificNameAuthorship)) %>% 
+  mutate(acceptedNameScientificNameAuthorship = tolower(acceptedNameScientificNameAuthorship)) 
 
 ### Denote whether multiple mappings are possible for Synonyms  
 multiple_s_mappings <- merged_dc_df %>% 
@@ -497,7 +504,8 @@ merged_dc_df$synonymMultMapPossible <- ifelse(merged_dc_df$synonym %in% syn_mult
 ### Some other housekeeping 
 # remove caps and spaces to synonym authorship to match the format of our accepted name authors
 merged_dc_df <- merged_dc_df %>% 
-  mutate(synonymNameSpacelessWCVPAuthorship = tolower(gsub(" ", "", synonymNameWCVPAuthorship)))
+  mutate(synonymNameSpacelessWCVPAuthorship = tolower(gsub(" ", "", synonymNameWCVPAuthorship))) %>% 
+  select(-accepted_taxon_authors, -authorship, -spacelessOurAuthorship, -multMapAuthorshipMatch, -acceptedNameMultMapResolutionPossible, -authorshipInAcceptedName)
 
 final_df <- merged_dc_df %>% 
   filter(!acceptedName == "Senna × floribunda")
