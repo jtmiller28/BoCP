@@ -21,8 +21,8 @@ name_alignment <- fread("./data/processed/finalized_name_alignment_wcvp.csv")
 ## Structure these names in a list with acceptedNameParent + synonym(s)
 accepted_name_v <- unique(name_alignment$acceptedNameParent)
 ### Subset to do only a portion of names for this script. 
-accepted_name_v <- accepted_name_v[2495:4500]
-accepted_name_v <- accepted_name_v[758:900]
+accepted_name_v <- accepted_name_v[16501:18500]
+accepted_name_v <- accepted_name_v[1601:2000]
 ## Make a file style version of this vector for storage purpsoses
 accepted_name_filestyle_v <- gsub(" ", "-", accepted_name_v)
 name_list <- list() # initialize empty list
@@ -48,7 +48,7 @@ retry_download <- function(i, retry_count) {
     failed_names_holder[[length(failed_names_holder) + 1]] <<- c(accepted_name_v[[i]], "Maximum retries exceeded", format(Sys.time(), "%a %b %d %X %Y"))
     failed_names_df <- as.data.frame(do.call(rbind, failed_names_holder))
     colnames(failed_names_df) <- c("acceptedParentName", "errorMsg", "timeStamp")
-    fwrite(failed_names_df, "./data/gbif-dws/raw-dw-info-tbls/failed_names2.csv", append = TRUE, col.names = FALSE)
+    fwrite(failed_names_df, "./data/gbif-dws/raw-dw-info-tbls/failed_names9.csv", append = TRUE, col.names = FALSE)
     return(NULL)
   }
   
@@ -67,7 +67,7 @@ retry_download <- function(i, retry_count) {
         failed_names_holder[[length(failed_names_holder) + 1]] <<- c(accepted_name_v[[i]], e$message, format(Sys.time(), "%a %b %d %X %Y"))
         failed_names_df <- as.data.frame(do.call(rbind, failed_names_holder))
         colnames(failed_names_df) <- c("acceptedParentName", "errorMsg", "timeStamp")
-        fwrite(failed_names_df, "./data/gbif-dws/raw-dw-info-tbls/failed_names2.csv", append = TRUE, col.names = FALSE)
+        fwrite(failed_names_df, "./data/gbif-dws/raw-dw-info-tbls/failed_names9.csv", append = TRUE, col.names = FALSE)
       }
       return(NULL)
     }
@@ -100,7 +100,7 @@ for (j in 1:length(accepted_name_v)) {
       numOccurrences = nrow(occurrence_data), # Store information on the number of occurrence records in raw download
       timeTaken = time_taken[["real"]] # Store the time (wall time) taken
     )
-    fwrite(info_df_temp, file = "./data/gbif-dws/raw-dw-info-tbls/raw-info-tbl2.csv", append = TRUE, col.names = !file.exists("./data/gbif-dws/raw-dw-info-tbls/raw-info-tbl2.csv"))
+    fwrite(info_df_temp, file = "./data/gbif-dws/raw-dw-info-tbls/raw-info-tbl9.csv", append = TRUE, col.names = !file.exists("./data/gbif-dws/raw-dw-info-tbls/raw-info-tbl9.csv"))
     # Process the occurrence data if not NULL
     print(paste("Calling data for", accepted_name_v[[j]]))
     fwrite(occurrence_data, file = paste0("./data/gbif-dws/raw/", accepted_name_filestyle_v[[j]], ".csv"))

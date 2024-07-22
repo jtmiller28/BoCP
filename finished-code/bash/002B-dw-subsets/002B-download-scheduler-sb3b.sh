@@ -1,13 +1,13 @@
 #!/bin/bash
 
-#SBATCH --job-name=gbif-occurrence-downloads-sb2      # Job name
+#SBATCH --job-name=gbif-occurrence-downloads-sb3b      # Job name
 #SBATCH --mail-type=ALL                  # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=jtmiller@ucsb.edu    # Where to send mail
-#SBATCH --output=%j.log                  # Standard output and error log
+#SBATCH --output=gbif-occurrence-downloads-sb3b_%j.log                  # Custom output and error log
 #SBATCH --nodes=1                        # Run all processes on a single node
 #SBATCH --ntasks=1                       # Run a single task
 #SBATCH --cpus-per-task=1               # Number of CPU cores per task
-#SBATCH --mem=100gb                       # Job memory request
+#SBATCH --mem=10gb                       # Job memory request
 #SBATCH --time=00-96:00:00               # Time limit days-hrs:min:sec
 #SBATCH --qos=soltis-b
 pwd; hostname; date
@@ -17,6 +17,6 @@ pwd; hostname; date
 module load R/4.3
 
 #do some (or alot) of coding
-Rscript --vanilla /blue/guralnick/millerjared/BoCP/finished-code/r/002B-download-occur-data.R
+Rscript --vanilla /blue/guralnick/millerjared/BoCP/finished-code/r/002B-dw-subsets/002B-download-occur-data-sb3b.R
 
-## example for running: sbatch /blue/guralnick/millerjared/BoCP/finished-code/bash/002B-download-scheduler.sh
+## example for running: sbatch /blue/guralnick/millerjared/BoCP/finished-code/bash/002B-dw-subsets/002B-download-scheduler-sb3b.sh

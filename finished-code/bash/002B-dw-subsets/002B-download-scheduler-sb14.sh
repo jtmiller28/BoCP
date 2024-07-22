@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=gbif-occurrence-downloads-sb12      # Job name
+#SBATCH --job-name=gbif-occurrence-downloads-sb14      # Job name
 #SBATCH --mail-type=ALL                  # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=jtmiller@ucsb.edu    # Where to send mail
 #SBATCH --output=%j.log                  # Standard output and error log
@@ -11,7 +11,7 @@
 #SBATCH --mem=50gb                       # Job memory request
 #SBATCH --time=00-96:00:00               # Time limit days-hrs:min:sec
 #SBATCH --account=guralnick             # We're using Gurlab
-#SBATCH --qos=guralnick                 # We're using Gurlab resources
+#SBATCH --qos=guralnick-b                 # We're using Gurlab resources
 pwd; hostname; date
 
 #load modules
@@ -19,6 +19,6 @@ pwd; hostname; date
 module load R/4.3
 
 #do some (or alot) of coding
-Rscript --vanilla /blue/guralnick/millerjared/BoCP/finished-code/r/002B-dw-subsets/002B-download-occur-data-sb12.R
+Rscript --vanilla /blue/guralnick/millerjared/BoCP/finished-code/r/002B-dw-subsets/002B-download-occur-data-sb14.R
 
-## example for running: sbatch /blue/guralnick/millerjared/BoCP/finished-code/bash/002B-dw-subsets/002B-download-scheduler-sb12.sh
+## example for running: sbatch /blue/guralnick/millerjared/BoCP/finished-code/bash/002B-dw-subsets/002B-download-scheduler-sb14.sh
