@@ -22,7 +22,10 @@ name_alignment <- fread("./data/processed/finalized_name_alignment_wcvp.csv")
 accepted_name_v <- unique(name_alignment$acceptedNameParent)
 ### Subset to do only a portion of names for this script. 
 missing_names <- read.csv("./data/gbif-dws/raw-dw-info-tbls/missing-taxa-v2-07-22-24.csv")
-accepted_name_v <- accepted_name_v[accepted_name_v %in% missing_names$acceptedNameParent]
+# update missing names as this needs to be rerun
+non_missing_names <- read.csv("./data/gbif-dws/raw-dw-info-tbls/raw-info-tbl-bear.csv")
+missing_names <- setdiff(missing_names$acceptedNameParent, non_missing_names$acceptedParentName)
+accepted_name_v <- accepted_name_v[accepted_name_v %in% missing_names]
 ## Make a file style version of this vector for storage purpsoses
 accepted_name_filestyle_v <- gsub(" ", "-", accepted_name_v)
 name_list <- list() # initialize empty list
