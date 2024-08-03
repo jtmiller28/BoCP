@@ -301,3 +301,51 @@ gators_download_edited <- function(synonyms.list, write.file = FALSE, filename =
   }
   return(output)
 }
+
+### Correct Class: https://github.com/nataliepatten/gatoRs/blob/main/R/correct_class.R
+correct_class <- function(df, scientific.name = "scientificName", scientific.name.authorship = "scientificNameAuthorship",
+                          id = "ID", occ.id = "occurrenceID",
+                          basis.of.record = "basisOfRecord", event.date = "eventDate",
+                          year = "year", month = "month", day = "day",
+                          inst.code = "institutionCode", recorded.by = "recordedBy",
+                          country = "country", county = "county", state = "stateProvince",
+                          locality = "locality", latitude = "latitude",
+                          longitude = "longitude",
+                          coord.uncertainty = "coordinateUncertaintyInMeters",
+                          info.withheld = "informationWithheld", habitat = "habitat",
+                          aggregator = "aggregator"){
+  
+  df[[scientific.name]] <- dplyr::case_when(df[[scientific.name]] == "" ~ NA, .default = as.character(df[[scientific.name]]))
+  df[[scientific.name.authorship]] <- dplyr::case_when(df[[scientific.name.authorship]] == "" ~ NA, .default = as.character(df[[scientific.name.authorship]]))
+  df[[basis.of.record]] <- dplyr::case_when(df[[basis.of.record]] == "" ~ NA, .default = as.character(df[[basis.of.record]]))
+
+  df[[event.date]] <- dplyr::case_when(
+    trimws(as.character(df[[event.date]])) == "" ~ NA_character_,
+    TRUE ~ as.character(as.Date(df[[event.date]], format = "%Y-%m-%d"))
+  )
+  df[[year]] <- dplyr::case_when(df[[year]] == "" ~ NA, .default = as.character(df[[year]]))
+  df[[month]] <- dplyr::case_when(df[[month]] == "" ~ NA, .default = as.character(df[[month]]))
+  df[[day]] <- dplyr::case_when(df[[day]] == "" ~ NA, .default = as.character(df[[day]]))
+  df[[inst.code]] <- dplyr::case_when(df[[inst.code]] == "" ~ NA, .default = as.character(df[[inst.code]]))
+  df[[country]] <- dplyr::case_when(df[[country]] == "" ~ NA, .default = as.character(df[[country]]))
+  df[[county]] <- dplyr::case_when(df[[county]] == "" ~ NA, .default = as.character(df[[county]]))
+  df[[state]] <- dplyr::case_when(df[[state]] == "" ~ NA, .default = as.character(df[[state]]))
+  df[[locality]] <- dplyr::case_when(df[[locality]] == "" ~ NA, .default = as.character(df[[locality]]))
+  df[[latitude]] <- dplyr::case_when(df[[latitude]] == "" ~ NA, .default = as.numeric(df[[latitude]]))
+  df[[longitude]]<- dplyr::case_when(df[[longitude]] == "" ~ NA, .default = as.numeric(df[[longitude]]))
+  df[[id]] <- dplyr::case_when(df[[id]] == "" ~ NA, .default = as.character(df[[id]]))
+  df[[coord.uncertainty]] <- dplyr::case_when(df[[coord.uncertainty]] == "" ~ NA, .default = as.character(df[[coord.uncertainty]]))
+  df[[info.withheld]] <- dplyr::case_when(df[[info.withheld]] == "" ~ NA, .default = as.character(df[[info.withheld]]))
+  df[[habitat]] <- dplyr::case_when(df[[habitat]] == "" ~ NA, .default = as.character(df[[habitat]]))
+  df[[occ.id]] <- dplyr::case_when(df[[occ.id]] == "" ~ NA, .default = as.character(df[[occ.id]]))
+  if (aggregator %in% colnames(df)) {
+    df[[aggregator]] <- dplyr::case_when(df[[aggregator]] == "" ~ NA, .default = as.character(df[[aggregator]]))
+  }
+  
+  if (recorded.by %in% colnames(df)) {
+    df[[recorded.by]] <- dplyr::case_when(df[[recorded.by]] == "" ~ NA, .default = as.character(df[[recorded.by]]))
+  }
+  # Convert eventDate to Date type
+  # df[[event.date]] <- as.Date(df[[event.date]], format = "%Y-%m-%d")
+  return(df)
+}
