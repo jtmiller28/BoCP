@@ -349,3 +349,141 @@ correct_class <- function(df, scientific.name = "scientificName", scientific.nam
   # df[[event.date]] <- as.Date(df[[event.date]], format = "%Y-%m-%d")
   return(df)
 }
+
+### Modifying remove duplicates to include collector. 
+#' @return Return data frame with duplicates removed.
+#' Information about the columns in the returned data frame can be found in the documentation for `gators_download()`.
+#'
+#' @importFrom parsedate parse_iso_8601 format_iso_8601
+#' @importFrom dplyr distinct mutate select row_number filter
+#' @importFrom stats na.omit
+#'
+#' @export
+
+remove_duplicates_mod <- function(df, event.date = "eventDate",
+                              aggregator = "aggregator", id = "ID", occ.id = "occurrenceID",
+                              year = "year", month = "month", day = "day",
+                              roundedLatitude = "roundedLatitude", roundedLongitude = "roundedLongitude", recordedBy = "recordedBy",
+                              remove.NA.occ.id = FALSE, remove.NA.date = FALSE,
+                              remove.unparseable = FALSE){
+  
+  if (NROW(df) == 0) return(df)
+  
+  if (remove.NA.occ.id == TRUE) {
+    df <- df[!is.na(df[[occ.id]]), ]
+  }
+  if (remove.NA.date == TRUE) {
+    df <- df[!is.na(df[[event.date]]), ]
+  }
+  
+  # Remove within aggregation duplicates based on ID (UUID or KEY)
+  ## This is done within our download function as well
+  ag <- unique(df[[aggregator]])
+  tempdf <- c()
+  for(i in 1:length(ag)){
+    tempdf[[i]] <- df[df$aggregator == ag[i], ] # edited this as the functionality is currently weird
+    if(nrow(tempdf[[i]]) == 0) next # SKIP (added by JT possibly remove)
+    if( (length(unique(stats::na.omit(tempdf[[i]][[id]])))) != nrow(stats::na.omit(tempdf[[i]][id])) ) {
+      tempdf[[i]] <- dplyr::distinct(tempdf[[i]], .data[[id]], .keep_all = TRUE)
+    }
+  }
+  df <- do.call(rbind, tempdf)
+  # Remove specimen duplicates
+  
+  has_date_cols <- function(df, i) {
+    # individual year, month, day columns don't even exist
+    if (length(df[[year]]) == 0 & length(df[[month]]) == 0 & length(df[[day]]) == 0) {
+      return(FALSE)
+    } else if (is.na(df[[year]][i]) | is.na(df[[month]][i])) {
+      return(FALSE)
+    } else {
+      return(TRUE)
+    }
+  }
+  
+  get_temp_date <- function(date, remove.unparseable) {
+    
+    tryCatch (
+      return(as.character(parsedate::parse_iso_8601(parsedate::format_iso_8601(date)))),
+      error=function(e) {
+        message("Event date cannot be automatically parsed for date: ", date)
+        if (remove.unparseable) {
+          return("remove")
+        } else {
+          temp_message <- paste0("Date cannot be automatically parsed for the eventDate: ", date)
+          temp_year <- readline(prompt = paste(temp_message, "Please enter the year in YYYY format, or NA if not provided: ", sep = "\n"))
+          temp_month <- readline(prompt = "Please enter the month in MM format, or NA if not provided: ")
+          temp_day <- readline(prompt = "Please enter the day in DD format or NA if not provided: ")
+          temp_date <- paste(temp_year, temp_month, temp_day, sep="-")
+          return(temp_date)
+        }
+      }
+    )
+  }
+  
+  new_df <- df
+  to_remove <- c()
+  for(i in 1:nrow(df)) {
+    # If year, month, day are not available, but eventDate is, attempt to parse
+    if(!is.na(df[[event.date]][i]) & !has_date_cols(df, i)) {
+      temp_date <- get_temp_date(df[[event.date]][i], remove.unparseable)
+      
+      if (temp_date == "remove" || is.na(temp_date)) { # im adding the is.na(temp_date) check as weird invalid date forms like "0-09-05" will cause NA rather than be caught by the tryCatch error during parsing. 
+        to_remove <- append(to_remove, i)
+      } else {
+        if (substr(temp_date, 1, 4) == "NA") {
+          new_df[[year]][i] <- NA
+        } else{
+          new_df[[year]][i] <- substr(temp_date, 1, 4)
+        }
+        if (substr(temp_date, 6, 7) == "NA") {
+          new_df[[month]][i] <- NA
+        } else{
+          new_df[[month]][i] <- substr(temp_date, 6, 7)
+        }
+        if (substr(temp_date, 9, 10) == "NA") {
+          new_df[[day]][i] <- NA
+        } else{
+          new_df[[day]][i] <- substr(temp_date, 9, 10)
+        }
+      }
+    } else { 
+      if (length(df[[year]]) == 0) {new_df[[year]][i] <- NA} else {new_df[[year]][i] <- df[[year]][i]}
+      if (length(df[[year]]) == "") {new_df[[year]][i] <- NA} else {new_df[[year]][i] <- df[[year]][i]}
+      if (length(df[[month]]) == 0) {new_df[[month]][i] <- NA} else {new_df[[month]][i] <- df[[month]][i]}
+      if (length(df[[month]]) == "") {new_df[[month]][i] <- NA} else {new_df[[month]][i] <- df[[month]][i]}
+      if (length(df[[day]]) == 0) {new_df[[day]][i] <- NA} else {new_df[[day]][i] <- df[[day]][i]}
+      if (length(df[[day]]) == "") {new_df[[day]][i] <- NA} else {new_df[[day]][i] <- df[[day]][i]}
+    }
+  }
+  
+  
+  if (remove.unparseable == TRUE) {new_df <- dplyr::filter(new_df, !(row_number() %in% to_remove))}
+  
+  new_df[[year]] <- as.numeric(new_df[[year]])
+  new_df[[month]] <- as.numeric(new_df[[month]])
+  new_df[[day]] <- as.numeric(new_df[[day]])
+  
+  # Take the df and organize in a way where we can take prority in distinct for coordUncertainty
+  new_df <- new_df %>% 
+    group_by(recordedBy, year, month, day, roundedLatitude, roundedLongitude) %>% 
+    arrange(coordinateUncertaintyInMeters)
+  
+  # If occurrence ID column exists, remove rows with identical occurrence ID and date
+  if (length(df[[occ.id]]) == 0) {
+    # Create a temporary column with unique values so NAs in dates are kept
+    # https://stackoverflow.com/questions/66537554/keeping-all-nas-in-dplyr-distinct-function
+    new_df <- dplyr::mutate(new_df, temp = dplyr::row_number() * (is.na(year) & is.na(month) & is.na(day)))
+    # Adding recordedBy as the collector field here.
+    new_df <- dplyr::distinct(new_df, .data[[recordedBy]], .data[[year]], .data[[month]], .data[[day]], .data[[roundedLatitude]], .data[[roundedLongitude]], temp, .keep_all = TRUE)
+    new_df <- dplyr::select(new_df, -temp)
+  } else if (length(df[[occ.id]]) > 0) {
+    new_df <- dplyr::mutate(new_df, temp = row_number() * (is.na(year) & is.na(month) & is.na(day)))
+    # Adding recordedBy as the collector field here. 
+    new_df <- dplyr::distinct(new_df, .data[[recordedBy]], .data[[year]], .data[[month]],
+                              .data[[day]], .data[[occ.id]],  .data[[roundedLatitude]], .data[[roundedLongitude]], temp, .keep_all = TRUE)
+    new_df <- dplyr::select(new_df, -temp)
+  }
+  
+  return(new_df)
+}
