@@ -12,8 +12,9 @@ library(ggplot2)
 # set dir 
 setwd("/home/millerjared/blue_guralnick/millerjared/BoCP/")
 
-# Set up array 
-task_id <- as.numeric(Sys.getenv("SLURM_ARRAY_TASK_ID"))
+# Set up array logic
+start_num <- as.numeric(Sys.getenv("START_NUM"))
+task_id <- as.numeric(start_num)
 part <- paste0("part", task_id)
 
 # Must be turned off for map subsetting to operate correctly 
@@ -50,6 +51,12 @@ accepted_name_v <- unique(na_plants_alignment$acceptedNameParent)
 accepted_name <- accepted_name_v[task_id] # index by task ID
 accepted_name_filestyle <- gsub(" ", "-", accepted_name)
 
+# Function to write errors to a internal script error
+log_error <- function(error_message) {
+  log_file <- "./logs/internal-native-range-error/"
+  write(paste(Sys.time(), " - ERROR: ", error_message, sep=""), file = log_file, append = TRUE)
+}
+tryCatch({
 if(file.exists(paste0("./data/processed/coord-clean-data/", accepted_name_filestyle, ".csv"))){
   
   # load the data
@@ -150,7 +157,7 @@ if(file.exists(paste0("./data/processed/coord-clean-data/", accepted_name_filest
       theme(plot.title = element_text(hjust = 0.5)) +
       guides(fill=guide_legend(title="Region Status"))
     
-    ggsave(paste0("./outputs/cleaned-data-range-maps/", accepted_name_filestyle, ".jpg"), width = 10, height = 10)
+    ggsave(paste0("./outputs/occur-data-range-status-maps/", accepted_name_filestyle, ".jpg"), width = 10, height = 10)
   } # end of if there is more than one occur record make the map...
   
     ## remove the geom col before writing out these data
@@ -174,4 +181,9 @@ if(file.exists(paste0("./data/processed/coord-clean-data/", accepted_name_filest
     )
   fwrite(regioned_data_summary, "./data/processed/cleaning-summaries/native-range-summary-tb.csv" , append = TRUE, col.names = !file.exists("./data/processed/cleaning-summaries/native-range-summary-tb.csv"))
   }
+  
+}, error = function(e) {
+  # Log any errors
+  log_error(conditionMessage(e))
+})
 print(part)
