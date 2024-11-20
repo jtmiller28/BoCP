@@ -28,8 +28,26 @@ accepted_name_filestyle_v <- gsub(" ", "-", accepted_name_v)
 sym_basis_info <- fread("./data/symbiota-dws/symbiota/SEINet_Observations_or_Qustionable.csv")
 sym_basis_info <- select(sym_basis_info, -collid, -institutionCode, -collectionCode,
                          -collectionName, -occid)
+
+# Build a loading bar for simplicity
+# Function to print the loading bar
+print_loading_bar <- function(current, total) {
+  width <- 50
+  progress <- current / total
+  bar <- paste(rep("=", floor(progress * width)), collapse = "")
+  space <- paste(rep(" ", width - floor(progress * width)), collapse = "")
+  percentage <- sprintf("%3.0f%%", progress * 100)
+  cat(sprintf("\r|%s%s| %s", bar, space, percentage))
+}
+
+# init name length
+total_names <- length(accepted_name_v)
+
 ## Create a loop that first combines the data from the three download directories, then taxonomically cleans it for the name alignment 
 for(i in 1:length(accepted_name_v)){
+  idigbio_occur <- NULL
+  gbif_occur <- NULL
+  symbiota_occur <- NULL
   if(file.exists(paste0("./data/idigbio-dws/raw/", accepted_name_filestyle_v[i], ".csv"))){
     idigbio_occur <- fread(paste0("./data/idigbio-dws/raw/", accepted_name_filestyle_v[i], ".csv"))
   } else{
@@ -48,6 +66,7 @@ for(i in 1:length(accepted_name_v)){
   
   # Standardize fields between idigbio and gbif
   ## First deal with basisOfRecord, Ed provided a list of known records with non-specimen info, so join them up and all NAs will be perservedSpecimens.
+  if(!is.null(symbiota_occur)){
   symbiota_occur <- left_join(symbiota_occur, sym_basis_info, by = "occurrenceID") # create the relational table to query in an if-else
   symbiota_occur <- symbiota_occur %>% 
     mutate(basisOfRecord = ifelse(!is.na(basisOfRecord), basisOfRecord, "PerservedSpecimen"))
@@ -66,17 +85,34 @@ for(i in 1:length(accepted_name_v)){
            month = lubridate::month(lubridate::ymd(eventDate)),
            day = lubridate::day(lubridate::ymd(eventDate)))
   symbiota_occur <- correct_class(symbiota_occur) # see gatoRs fxns edited for details on class correction. 
+  } else {
+  }
+  if(!is.null(idigbio_occur)){
   idigbio_occur <- idigbio_occur %>% 
     select(-genus, -specificEpithet, -infraspecificEpithet) %>% 
     mutate(scientificNameAuthorship = NA) # this is not parsed in the parent data as of yet, but we'll use NA for organization purposes. 
   idigbio_occur <- correct_class(idigbio_occur)
+  } else{
+    
+  }
+  if(!is.null(gbif_occur)){
   gbif_occur <- gbif_occur %>% 
     select(-genus, -specificEpithet, -infraspecificEpithet) %>% 
     mutate(scientificNameAuthorship = NA)
   gbif_occur <- correct_class(gbif_occur)
-  # Combine all of the data
-  raw_occur_data <- rbind(symbiota_occur, idigbio_occur, gbif_occur)
-  
+  } else{
+    
+  } 
+  # Create a data list 
+  data_list <- list(symbiota_occur, idigbio_occur, gbif_occur)
+  # Filter out anything that contains nothing.
+  non_null_data_list <- Filter(Negate(is.null), data_list)
+  # Combine all non null dataframes
+  if(length(non_null_data_list) > 0){
+    raw_occur_data <- do.call(rbind, non_null_data_list)
+  } else { 
+    raw_occur_data <- NULL
+    }
   ## Taxonomically clean the data, then write it to a associated dir. 
   name_relations <- name_alignment[acceptedNameParent == accepted_name_v[i]] # change to i
   raw_occur_data <- raw_occur_data %>% mutate(uuid = 1:n()) # add a unique identifier field. 
@@ -101,6 +137,12 @@ for(i in 1:length(accepted_name_v)){
   # A more complex filter, checking for multiple mapping boolean values as a conditional for requiring more stringent filter
   occurrence_only_acceptedName_data <- occurrence_name_filtered[scientificNameParsed == accepted_name] 
   occurrence_synonym_data <- occurrence_name_filtered[scientificNameParsed != accepted_name]
+  ## Preprocessing name_relations to resolve some conditional problems
+  name_relations <- name_relations %>% mutate(acceptedNameMultMapsPossible = case_when(
+    is.na(acceptedNameMultMapsPossible) ~ FALSE,
+    acceptedNameMultMapsPossible == TRUE ~ TRUE, 
+    acceptedNameMultMapsPossible == FALSE ~ FALSE
+  ))
   ## If any circumstances exist where the acceptedName can multiple map, we need to strictly filter for appropriate authorship
   if(any(name_relations$acceptedNameMultMapsPossible) == TRUE){
     print("Accepted Name Multiple Mappings Possible, Proceed to Authority Matching")
@@ -123,8 +165,8 @@ for(i in 1:length(accepted_name_v)){
   occur_data_synonyms <- unique(occurrence_synonym_data$scientificNameParsed) # possibly synonyms
   inner_synonyms <- intersect(viable_synonyms, occur_data_synonyms) # matching our alignment synonyms in the occurrence data.
   synonym_name_relations <- name_relations %>% filter(synonym %in% inner_synonyms) # extract relevant synonym relations
-  
   synonym_df_holder <- data.table()
+  if(nrow(synonym_name_relations) > 1){ # conditional for if we have synonyms.
   for(j in 1:length(inner_synonyms)){ # move through and check each synonym case-by-case. 
     synonym_relation <- synonym_name_relations[synonym == inner_synonyms[j]]
     occur_single_synonym_data <- NULL # intialize a NULL value
@@ -135,7 +177,7 @@ for(i in 1:length(accepted_name_v)){
         mutate(authorshipParsed = tolower(authorshipParsed)) %>% 
         mutate(authorshipParsed = gsub(" ", "", authorshipParsed))
       synonymAuthorship <- unique(synonym_relation$synonymNameSpacelessWCVPAuthorship)
-      filtered_occurrence_synonym_data <- occur_single_synonym_data[authorshipParsed == synonymAuthorship]
+      filtered_occurrence_synonym_data <- occur_single_synonym_data[authorshipParsed %in% synonymAuthorship] # %in% for those very occasional instances where there are multiple authorships for the same synonym genus + specificEpithet. 
       # and write out the filtered data
       occurrence_synonym_checked <- filtered_occurrence_synonym_data
       synonym_df_holder <- rbind(synonym_df_holder, occurrence_synonym_checked, fill=TRUE)
@@ -143,6 +185,9 @@ for(i in 1:length(accepted_name_v)){
       print("Synonym Name Does Not Have Multiple Mappings Possible, No Filtering By Authority Necessary")
       synonym_df_holder <- rbind(synonym_df_holder, occur_single_synonym_data, fill=TRUE)
     }
+  }
+  } else { # no synonyms, just bind synonym_df_holder as an empty object.
+    
   }
 
 occurrence_taxonomy_cleaned <- rbind(occurrence_acceptedName_checked, synonym_df_holder)
@@ -159,4 +204,8 @@ occurrence_taxonomy_cleaned <- rbind(occurrence_acceptedName_checked, synonym_df
   )
   fwrite(taxa_clean_info_tb, file = "./data/processed/cleaning-summaries/taxa_clean_info_tb.csv", append = TRUE, col.names = !file.exists("./data/processed/cleaning-summaries/taxa_clean_info_tb.csv"))
   fwrite(occurrence_taxonomy_cleaned, file = paste0("./data/processed/taxa-cleaned-data/", accepted_name_filestyle_v[i], ".csv"))
+
+  print_loading_bar(j, total_names)  # Update the loading bar
+  
 } # end of i loop
+cat("\n")  # Move to a new line after the loading bar is complete
