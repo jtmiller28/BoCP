@@ -29,6 +29,7 @@ for(i in 1:length(accepted_name_v)){
   
   init_num_records <- nrow(occur_data) # store the intial num of records
   
+  
   # First clean data for relevant fields: latitude, longitude, & eventDate. 
   occur_data <- occur_data %>% 
     filter(!is.na(longitude)) %>% 
@@ -37,7 +38,7 @@ for(i in 1:length(accepted_name_v)){
     filter(!longitude == 0.00) %>% 
     filter(!latitude > 90 & !latitude < -90) %>% 
     filter(!longitude > 180 & !longitude < -180) %>% 
-    mutate(roundedLatitude = round(latitude, 2)) %>% 
+    mutate(roundedLatitude = round(latitude, 2)) %>% # round to two decimal places, ~1km
     mutate(roundedLongitude = round(longitude, 2))
   
   field_cleaned_num_records <- nrow(occur_data)

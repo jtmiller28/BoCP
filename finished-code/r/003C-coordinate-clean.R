@@ -9,16 +9,16 @@
 library(dplyr)
 library(data.table)
 library(CoordinateCleaner)
-
+setwd("/blue/guralnick/millerjared/BoCP/")
 # Load modified gatoRs functions
-source("finished-code/r/gatoRs-fxns-edited.R") # edited gatoRs fxns to allow for only pulling idigbio
+source("./finished-code/r/gatoRs-fxns-edited.R") # edited gatoRs fxns to allow for only pulling idigbio
 
 # Read in the name alignment
 name_alignment <- fread("./data/processed/finalized_name_alignment_wcvp.csv")
 # Create an accepted name vector & filestyle version.
 accepted_name_v <- unique(name_alignment$acceptedNameParent)
 # index when necessary
-accepted_name_v <- accepted_name_v
+accepted_name_v <- accepted_name_v[29728:32867]
 accepted_name_filestyle_v <- gsub(" ", "-", accepted_name_v)
 
 # load names and take distinct records for relevant fields.
@@ -30,6 +30,7 @@ for(i in 1:length(accepted_name_v)){
   } 
   
   records_prior_coord_cleaning <- nrow(occur_data)
+  if(nrow(occur_data > 0)){
   
   # Run coord clean using all of the defaults besides outliers (I'd prefer to handle these in-house.)
   occur_data <- CoordinateCleaner::clean_coordinates(occur_data, 
@@ -52,6 +53,9 @@ for(i in 1:length(accepted_name_v)){
     postCoordClean = records_post_coord_cleaning
   )
   fwrite(occur_data, paste0("./data/processed/coord-clean-data/", accepted_name_filestyle_v[i], ".csv"))
-  fwrite(coord_clean_info_tb , file = "./data/processed/cleaning-summaries/coord_clean_info_tb.csv", append = TRUE, col.names = !file.exists("./data/processed/cleaning-summaries/distinct_clean_info_tb.csv"))
+  fwrite(coord_clean_info_tb , file = "./data/processed/cleaning-summaries/coord_clean_info_tb.csv", append = TRUE, col.names = !file.exists("./data/processed/cleaning-summaries/coord_clean_info_tb.csv"))
   print(i) # print where we're at in the loop...
+  } else{
+    print(paste("no data for", accepted_name_v[i], "found"))
+  }
 }
