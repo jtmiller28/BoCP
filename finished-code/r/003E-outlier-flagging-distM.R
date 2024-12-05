@@ -32,6 +32,7 @@ if (!file.exists(file_path)) {
   message("No occurrence data for ", accepted_name)
   return(NULL)
 } else{
+  print(paste("Found", accepted_name))
   # load the data
   occur_data <- fread(paste0("./data/processed/coord-clean-data/", accepted_name_filestyle, ".csv"))
 }
