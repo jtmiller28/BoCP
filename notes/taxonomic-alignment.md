@@ -7,7 +7,7 @@ To reduce the complexity of the NCBI taxonomic backbone the following filters we
 * Removal of names containing " sect " as these are not dealing with species level alignment 
 * Removal of names containing "/" as these express uncertainty
 
-Relational tables were built per taxonomic database following these steps:
+Relational tables were built per taxonomic database following these steps: <br>
 NCBI
 1) Names were parsed into name and author, names that failed to parse or failed to parse past the genus level were removed.
 2) Names with the taxonomic status "in-part" were removed due to their flexible mapping nature (multiple alignments by definition.)
