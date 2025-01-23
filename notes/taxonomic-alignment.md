@@ -26,19 +26,19 @@ Names were then checked to see if all names are unique in what aligned name they
 Combining WCVP and NCBI
 wcvpAligned accepted name was connected to all versions of the wcvp and ncbi available names. the wcvpAligned names were also simplified into wcvpAlignedNameParent, containing only the first two word's in the character string of wcvpAlignedName in order to remove infraspecific information. These combined names were then assessed for multiple ncbi ids,by grouping the wcvpAlignedNmae and looking at whether there were unique ncbiAcceptedNameUsageIDs per wcvpAlginedName grouping. All boolean values were false, therefore I backfilled ncbiAcceptedNameUsageIDs to all versions of the wcvpAlignedName. The output was then simplified by reducing fields to the necessary ones for end interpretation and coalesced for distinct names based on priority of wcvp, then ncbi. 
  
-Field descriptions:
-wcvpAlignedGenus = the genus from the aligned name according to wcvp
-wcvpAlignedNameParent = the first 2 words of the wcvpAlignedName
-wcvpAlignedName = the aligned name according to wcvp
-wcvpAlginedNameAuthors = the aligned name authors according to wcvp
-wcvpAlignedNameStatus = the aligned name status (should always be "Accepted")
-name = any name found in either the wcvp or ncbi backbones.
-wcvpNameAuthors = name's authors (if present, wcvp only)
-nameStatus = the designated status for any name: can be "Synonym"
-"Accepted" etc.
-source = where the name came from (either "ncbi" or "wcvp")
-ncbiAcceptedNameUsageID = the NCBI ID that will coordinate with 
-phylogenies. All names attached to an aligned name will have these
-backfilled
-multiple_ncbi_ids = a boolean check to see if there are any conflicts
-in NCBI ID with the wcvp's backbone.
+Field descriptions: <br>
+wcvpAlignedGenus = the genus from the aligned name according to wcvp <br>
+wcvpAlignedNameParent = the first 2 words of the wcvpAlignedName <br>
+wcvpAlignedName = the aligned name according to wcvp <br>
+wcvpAlginedNameAuthors = the aligned name authors according to wcvp <br>
+wcvpAlignedNameStatus = the aligned name status (should always be "Accepted") <br>
+name = any name found in either the wcvp or ncbi backbones. <br>
+wcvpNameAuthors = name's authors (if present, wcvp only) <br>
+nameStatus = the designated status for any name: can be "Synonym" 
+"Accepted" etc. <br>
+source = where the name came from (either "ncbi" or "wcvp") <br>
+ncbiAcceptedNameUsageID = the NCBI ID that will coordinate with <br>
+phylogenies. All names attached to an aligned name will have these 
+backfilled <br>
+multiple_ncbi_ids = a boolean check to see if there are any conflicts 
+in NCBI ID with the wcvp's backbone. <br>
