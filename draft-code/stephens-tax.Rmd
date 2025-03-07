@@ -1,0 +1,67 @@
+---
+title: "stephens-tax-alignment"
+author: "JT Miller"
+date: "2025-01-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Aligning Stephen's remainder of names
+```{r}
+library(ape)
+library(data.table)
+library(dplyr)
+library(rgnparser)
+```
+Load stephen's tree, locate missing taxa based on synonymy
+```{r}
+# Load stephen's tree
+smith_tree <- ape::read.tree("/home/millerjared/blue_guralnick/millerjared/BoCP/data/processed/tree-outputs/polypod_acro_angio_dated.wcvp.matched.tre")
+
+# pull out names 
+smith_tree_name_labels <- smith_tree$tip.label
+
+# create a df with ID and name 
+tree_name_table <- tibble(raw = smith_tree_name_labels) %>% 
+  mutate(name_id = str_replace_all(raw, "__", "_"),
+         verbatim = raw,
+         parsedName = word(name_id, 1,2, sep = "_"),
+         ncbiID = word(name_id, 3, sep = "_"),
+         parsedName = gsub("_", " ", parsedName)) %>% 
+  select(verbatim, parsedName, ncbiID)
+```
+
+Load in NA name list, parse names, full join to figure out the names that need to be found via synonymy
+```{r}
+na_names <- fread("/blue/guralnick/millerjared/BoCP/data/raw/USACANMEX_plantNamesFieldsAdded.csv")
+
+## Concatenate Authorship, then parse out using gnparser
+na_names$concatenatedName <- apply(na_names[, c("Name", "ExteriorNameAuthorship", "ExteriorNameAuthorship2", "V5")], 1, function(x) paste(x[x != ""], collapse = ", ")) # Collapse fields into one by adding a space when there is a string present
+na_names <- na_names[, .(TropicosNameID = NameID, concatenatedName)] # Select only fields of interest 
+na_parsed_names <- gn_parse_tidy(na_names$concatenatedName)  # break up names
+na_parsed_names_df <- merge(na_names, na_parsed_names, by.x = 'concatenatedName', by.y = 'verbatim')
+
+# select necessary fields 
+na_parsed_names_df <- select(na_parsed_names_df, 
+                              naVerbatimName = concatenatedName, 
+                              parsedName =  canonicalfull , # choosing this for now, may cause issues with infraspecifics
+                             parsedNameWoutInfras = canonicalstem,
+                             authorship
+                             )
+
+# remove hybrids as these are not useful for the BoCP scope
+hybrids <- na_parsed_names_df %>% # Grab a list of names that are hybrids
+  filter(grepl("×", parsedName)) 
+
+na_parsed_names_df <- filter(na_parsed_names_df, !parsedName %in% hybrids$parsedName)
+
+names_missing_from_stephens_tree <- na_parsed_names_df %>% 
+  filter(!parsedName %in% tree_name_table$parsedName) # remove the names stephens matched
+
+mismatch <- setdiff(tree_name_table$parsedName, na_parsed_names_df$parsedName)
+
+```
+

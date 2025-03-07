@@ -1,0 +1,52 @@
+---
+title: "tax-alignment"
+author: "JT Miller"
+date: "2025-01-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Taxonomic Standardization 
+This rmd operates as a workbook for standardizing any table of taxonomic names against a backbone. To remain flexible on inputs, this workbook illustrates the general principles for structuring both the taxonomic backbone & a table of names as a reprex. <br>
+
+A requirement to use this method effectively is to strucuture your inputs to fit the reprex. Please ensure that your table follows these criteria. Additionally, ensure what data is being removed during the stardardization steps is desirable. Due to the nature of names, we have to make some choices on what to keep. If you would prefer to do things differently, I may be able to modify the code. 
+
+## Load Libraries 
+```{r}
+library(tidyverse) # has packages like dplyr and stringr
+library(data.table) # my preferred package for large data
+library(rgnparser) # my preferred method for parsing authors out of scientific names
+library(taxadb) # an excellent package for aquiring some important taxonomic databases
+library(here) # a useful package for dir orienting when using rmds
+here::here() # builds the path to our top level dir, desirable for my purposes. Feel free to use this or not depending on how your choosing to run this code. 
+```
+
+
+## Outline
+### 1. Standardize name list and taxonomic backbone 
+### 2. Align Names
+### 3. Attach Synonyms 
+### 4. Format alignment (this step is formatted for my code pipelines, but an be changed based on user interest)
+
+
+### 1. Standardize name list and taxonomic backbone
+Purpose: Load in table of names desired to be aligned and taxonomic backbone that will be used to align names. Stardardize these tables so that we may perform alignment <br>
+
+Some set-up for creating an example, Do Not Run (the github repo contains the necessary data to run)
+```{r eval=FALSE, include=TRUE}
+name_table <- fread(here("data", "raw", "USACANMEX_plantNamesFieldsAdded.csv"))
+
+name_table <- select(name_table, Name)
+
+subsample <- name_table[sample(nrow(name_table), 100),]
+
+fwrite(subsample, here("data/raw/name_table_repex.csv"))
+```
+
+Step 1) Standardize input name table <br> 
+requirements: <br>
+1) Name table must contain the 3 fields, verbatimName, author, originSource
+

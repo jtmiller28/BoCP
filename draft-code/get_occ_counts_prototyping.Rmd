@@ -1,0 +1,221 @@
+---
+title: "get_occ_counts_prototyping"
+author: "jt-miller"
+date: "2024-04-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(rgbif)
+```
+Modify count fxn 
+```{r}
+name_suggest("Galax urceolata")
+occ_count(scientificName = "Ursus americanus") #
+occ_count(taxonKey = 2433407)
+occ_count(taxonKey = 6163836)
+name_suggest_ids <- name_suggest("Ursus americanus")[[1]][1]
+count_storage <- list()
+for(i in 1:length(name_suggest_ids$key)){
+  name_count <- occ_count(taxonKey = name_suggest_ids$key[i])
+  count_storage[[i]] <- name_count
+}
+```
+```{r}
+# Download Option #1 - based on scientificName
+gbif_data <- occ_data(scientificName = "Ursus americanus")
+## Now look at verbatim record
+gbif_data$data$key <- as.numeric(gbif_data$data$key)
+query_gbif <- rgbif::occ_get_verbatim(key = gbif_data$data$key, fields = c("scientificName"), curlopts=list(http_version=2))
+unique(query_gbif$scientificName)
+limit <- 100
+# Download Option #2 - based on species key
+specieskey <- rgbif::name_backbone(name = "Ursus americanus")
+gbif_data2 <- rgbif::occ_data(taxonKey =specieskey$speciesKey, limit = limit, curlopts=list(http_version=2))
+gbif_data2$data$key <- as.numeric(gbif_data2$data$key)
+query_gbif2 <- rgbif::occ_get_verbatim(key = gbif_data2$data$key, fields = c("scientificName"), curlopts=list(http_version=2))
+unique(query_gbif2$scientificName)
+```
+
+
+
+
+Modifying the gatoRs package fxn get_gbif() to just return the number of occurrences as per fuzzy match. 
+```{r}
+get_gbif <- function(synonyms.list, gbif.match = "fuzzy", gbif.prov = FALSE, limit = 100000){
+  if (gbif.match != "fuzzy" & gbif.match != "code") {
+    stop("Invalid value for argument: gbif.match. Value for gbif.match must equal 'fuzzy' or 'code'.")
+  }
+  if (length(synonyms.list) == 0 | any(is.na(synonyms.list))) {
+    stop("Invalid argument: synonyms.list. The argument synonyms.list must be non-empty.")
+  }
+  colNames <- c("scientificName",
+                "genus",
+                "specificEpithet",
+                "infraspecificEpithet",
+                "key",
+                "occurrenceID",
+                "basisOfRecord",
+                "eventDate",
+                "year",
+                "month",
+                "day",
+                "institutionCode",
+                "recordedBy",
+                "country",
+                "county",
+                "stateProvince",
+                "locality",
+                "occurrenceRemarks",
+                "verbatimLocality",
+                "decimalLatitude",
+                "verbatimLatitude",
+                "decimalLongitude",
+                "verbatimLongitude",
+                "coordinateUncertaintyInMeters",
+                "informationWithheld",
+                "habitat",
+                "geodeticDatum")
+  numerical <- c("decimalLatitude",
+                 "verbatimLatitude",
+                 "decimalLongitude",
+                 "verbatimLongitude",
+                 "year",
+                 "month",
+                 "day",
+                 "coordinateUncertaintyInMeters")
+
+  query_gbif <- data.frame(matrix(ncol = length(colNames), nrow = 0))
+  colnames(query_gbif) <- colNames
+  # fix columns to be of type character
+  for (i in 1:NCOL(query_gbif)) {
+    if (colNames[i] %in% numerical) {
+      query_gbif[,i] <- as.numeric(query_gbif[,i])
+    }
+    else {
+      query_gbif[,i] <- as.character(query_gbif[,i])
+    }
+  }
+
+  if (gbif.match == "code") {
+    for (i in 1:length(synonyms.list)) {
+      key <- suppressWarnings(rgbif::name_backbone(name = synonyms.list[i])$speciesKey)
+      if (!is.null(key)) {
+        temp <- rgbif::occ_data(taxonKey = key, limit = limit, curlopts=list(http_version=2))
+        temp <- temp$data
+        query_gbif <- dplyr::bind_rows(query_gbif, temp)
+      }
+    }
+  }
+  else if (gbif.match == "fuzzy") {
+    for (i in 1:length(synonyms.list)) {
+      temp <- rgbif::occ_data(scientificName = synonyms.list[i], limit = limit, curlopts=list(http_version=2))
+      temp <- temp$data
+      # use bind_rows() to account for different number of columns
+      query_gbif <- dplyr::bind_rows(query_gbif, temp)
+    }
+  }
+
+  # if no results found
+  if (NROW(query_gbif) == 0) {
+    message("No results found in GBIF.")
+    return(query_gbif)
+  }
+
+  if (gbif.prov) {
+    query_gbif <- dplyr::distinct(query_gbif, key, .keep_all = TRUE)
+    query_gbif$key <- as.numeric(query_gbif$key)
+    query_gbif <- rgbif::occ_get_verbatim(key = query_gbif$key, fields = colNames, curlopts=list(http_version=2))
+  }
+
+  temp <- data.frame(matrix(NA, ncol = 0, nrow = 0))
+  tempColNames <- colnames(temp)
+
+  for (i in 1:length(colNames)) {
+    if (!(colNames[i] %in% colnames(query_gbif))) {
+      temp <- data.frame(matrix(NA, ncol = NCOL(temp) + 1, nrow = 0))
+      colnames(temp) <- c(tempColNames, colNames[i])
+      tempColNames <- colnames(temp)
+     }
+  }
+
+  if (NCOL(temp) > 0) {
+    for (i in 1:NCOL(temp)) {
+      if (colNames[i] %in% numerical) {
+        temp[,i] <- as.numeric(temp[,i])
+      }
+      else {
+        temp[,i] <- as.character(temp[,i])
+      }
+    }
+  }
+
+  query_gbif <- dplyr::bind_rows(temp, query_gbif)
+  query_gbif <- dplyr::rename(query_gbif, ID = "key",
+                              latitude = "decimalLatitude",
+                              verbatimLatitude = "verbatimLatitude",
+                              longitude = "decimalLongitude",
+                              verbatimLongitude = "verbatimLongitude")
+  query_gbif <- suppressWarnings(correct_class(query_gbif))
+
+  # Add occurrenceRemarks, verbatimLocality to locality column
+  query_gbif$locality <- paste("locality: ", query_gbif$locality)
+  query_gbif$locality <- paste(query_gbif$locality, query_gbif$occurrenceRemarks, sep = ", occurrenceRemarks: ")
+  query_gbif$locality <- paste(query_gbif$locality, query_gbif$verbatimLocality, sep = ", verbatimLocality: ")
+
+  # if decimal lat/lon columns are empty, replace with verbatim lat/lon columns
+  temp <- query_gbif[is.na(query_gbif$latitude), ]
+  if (NROW(temp) > 0) {
+    query_gbif <- query_gbif[!(is.na(query_gbif$latitude)), ]
+    for (i in 1:NROW(temp)) {
+      if (!is.na(temp$verbatimLatitude[i]))
+        temp$latitude[i] <- temp$verbatimLatitude[i]
+    }
+    query_gbif <- rbind(query_gbif, temp)
+  }
+
+  temp <- query_gbif[is.na(query_gbif$longitude), ]
+  if (NROW(temp) > 0) {
+    query_gbif <- query_gbif[!(is.na(query_gbif$longitude)), ]
+    for (i in 1:NROW(temp)) {
+      if (!is.na(temp$verbatimLongitude[i]))
+        temp$longitude[i] <- temp$verbatimLongitude[i]
+    }
+    query_gbif <- rbind(query_gbif, temp)
+  }
+
+  query_gbif$aggregator <- "GBIF"
+  query_gbif <- query_gbif %>%
+                dplyr::select("scientificName",
+                              "genus",
+                              "specificEpithet",
+                              "infraspecificEpithet",
+                              "ID",
+                              "occurrenceID",
+                              "basisOfRecord",
+                              "eventDate",
+                              "year",
+                              "month",
+                              "day",
+                              "institutionCode",
+                              "recordedBy",
+                              "country",
+                              "county",
+                              "stateProvince",
+                              "locality",
+                              "latitude",
+                              "longitude",
+                              "coordinateUncertaintyInMeters",
+                              "informationWithheld",
+                              "habitat",
+                              "aggregator") %>%
+                              suppressWarnings(correct_class())
+
+  return(query_gbif)
+} 
+```
+

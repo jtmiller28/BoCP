@@ -1,0 +1,398 @@
+---
+title: "ncbi-alignment"
+output:
+  html_document: default
+  pdf_document: default
+date: "2024-12-06"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ape)
+library(ggtree)
+library(taxadb)
+library(tidyverse)
+library(data.table)
+```
+
+
+Read in the ncbi alignment and tree
+```{r}
+all_matched_names <- readRDS("/home/millerjared/blue_guralnick/millerjared/BoCP/outputs/ncbi_matched_names_temp.rds")
+
+
+
+poa_tree <- ape::read.tree("/home/millerjared/blue_guralnick/millerjared/BoCP/data/processed/tree-outputs/RAxML_bestTree.POAOUT_rax.rr.pr")
+
+```
+
+Redo tree labels 
+```{r}
+
+# create a named vector to map IDs to names
+id_to_name <- setNames(all_matched_names$ncbiMappedSpecies, all_matched_names$ncbiAcceptedNameUsageIDLess)
+
+# replace the IDs in tip.label with corresponding names 
+poa_tree$tip.label <- id_to_name[poa_tree$tip.label]
+
+# write this new tree!
+write.tree(poa_tree, file = "/home/millerjared/blue_guralnick/millerjared/BoCP/outputs/poa_tree_names_aligned.pr")
+```
+
+# Lots of taxa are missing (perhaps unsuprisingly), so lets append the missing names via the ncbi db info 
+
+## Organize the ncbi db 
+```{r}
+# Bring in NCBI db
+ncbi_names <- taxa_tbl("ncbi") # load in ncbi's names according to taxadb's last pull
+ncbi_names <- ncbi_names %>%  collect()
+ncbi_names <- ncbi_names %>% 
+  mutate(acceptedNameUsageIDLess = gsub("NCBI:", "", acceptedNameUsageID)) # standardize with the notation is Stephen's tree
+
+```
+## Create a ncbi_names db for stephen's full poaceae tree, then proceed to left-join our full_names dt to see label which have alignments and which do not
+```{r}
+poa_tree <- ape::read.tree("/home/millerjared/blue_guralnick/millerjared/BoCP/data/processed/tree-outputs/RAxML_bestTree.POAOUT_rax.rr.pr")
+
+full_poa_ids <- poa_tree$tip.label # take tip ncbi codes
+poa_ncbi_names <- ncbi_names %>% 
+  filter(acceptedNameUsageIDLess %in% full_poa_ids) %>%  
+  filter(taxonomicStatus == "accepted") %>% # removes the alternatives
+  distinct(scientificName, taxonRank, taxonomicStatus, acceptedNameUsageID, acceptedNameUsageIDLess, kingdom, phylum, class, order, family, genus, specificEpithet)
+
+# There are 28 names that are unavalaible, presumably due to taxadb not storing the same exact pull that stephen used on NCBI's db
+unk_names_to_my_ncbi_pull <- setdiff(full_poa_ids, poa_ncbi_names$acceptedNameUsageIDLess)
+
+simple_all_matched_names <- all_matched_names %>% 
+  distinct(nameMatch, concatenatedName, ncbiMappedSpecies,original_authorship, ncbiAcceptedNameUsageID, ncbiAcceptedNameUsageIDLess)
+# Append a name found status to the name
+poa_ncbi_names_w_bocp <- poa_ncbi_names %>%
+  rename(ncbiMappedSpecies = specificEpithet) %>% 
+  left_join(simple_all_matched_names, by = "ncbiMappedSpecies") %>% 
+  distinct(ncbiMappedSpecies, ncbiAcceptedNameUsageIDLess, .keep_all = TRUE) %>%  # joining tables made things duplicate 
+  mutate(nameAlignmentFound = ifelse(!is.na(ncbiAcceptedNameUsageIDLess), TRUE, FALSE))
+```
+
+```{r}
+# Bring in the original tree
+poa_tree <- ape::read.tree("/home/millerjared/blue_guralnick/millerjared/BoCP/data/processed/tree-outputs/RAxML_bestTree.POAOUT_rax.rr.pr")
+
+# Create a named vector to map IDs to names
+id_to_name <- setNames(poa_ncbi_names_w_bocp$ncbiMappedSpecies, poa_ncbi_names_w_bocp$acceptedNameUsageIDLess)
+
+# Replace the IDs in tip.label with corresponding names 
+poa_tree$tip.label <- id_to_name[poa_tree$tip.label]
+
+# Define the tip colors based on nameAlignmentFound
+poa_ncbi_names_w_bocp$tip_color <- ifelse(poa_ncbi_names_w_bocp$nameAlignmentFound, "10", "9")
+
+# Create a named vector to map tip colors to tip labels
+tip_color_map <- setNames(poa_ncbi_names_w_bocp$tip_color, poa_ncbi_names_w_bocp$ncbiMappedSpecies)
+
+# Append color information to the updated tip labels
+poa_tree$tip.label <- paste0(
+  poa_tree$tip.label, 
+  "[&data=", tip_color_map[poa_tree$tip.label], "]"
+)
+
+# Export the modified tree with aligned names and colors
+write.tree(poa_tree, file = "/home/millerjared/blue_guralnick/millerjared/BoCP/outputs/poa_tree_names_aligned.pr")
+
+```
+
+Attach geographic information
+```{r}
+# First we're going to need the powo alignment for each name
+wcvp_backbone <- fread("/home/millerjared/blue_guralnick/millerjared/BoCP/data/raw/wcvp_names.csv") # load wcvp's db 
+
+# simplify fields and standardize
+wcvp_backbone_less <- wcvp_backbone %>% 
+  select(wcvp_taxon_name = taxon_name, wcvp_taxon_status = taxon_status, wcvp_plant_name_id = plant_name_id, wcvp_taxon_authors = taxon_authors, wcvp_accepted_plant_name_id = accepted_plant_name_id, powo_id)
+
+# merge tables to denote where each ncbiMappedSpecies lands in wcvp
+merged_names <- merge(poa_ncbi_names_w_bocp, wcvp_backbone_less, by.x = "ncbiMappedSpecies", by.y = "wcvp_taxon_name", all.x = TRUE)
+
+# label the multiple mapping names
+wcvp_backbone_m <- wcvp_backbone %>%
+  group_by(taxon_name) %>%
+  mutate(num_different_paths = n_distinct(accepted_plant_name_id)) # adjusting this to match wcvp 
+
+multiple_mappings <- wcvp_backbone_m %>%
+  filter(num_different_paths > 1) # it would seem that most of these cases are actually subspecific. 
+
+# attach a boolean value to denote whether names in this subset of found names contain multiple mapping matches
+merged_names$multipleMappingsPossible <- ifelse(merged_names$ncbiMappedSpecies %in% multiple_mappings$taxon_name, TRUE, FALSE)
+
+# deal with multiple mapping names validation shennangigans 
+## Identify 'recoverable' names based on authorship present in our dataset 
+### rm spaces & capitilization, then perform an exact match 
+merged_names <- as.data.table(merged_names)
+merged_names <- merged_names[,c("spacelessOurAuthorship","spacelessWCVPAuthorship") := lapply(.SD, function(x) tolower(gsub(" ", "", x))), 
+                      .SDcols = c("original_authorship", "wcvp_taxon_authors")]
+merged_names$authorshipMatch <- merged_names$spacelessOurAuthorship == merged_names$spacelessWCVPAuthorship
+
+## Create new a new field called multMapAuthorship match that requires authorship to match when multipleMappings is Possible
+merged_names <- merged_names %>% 
+  mutate(multMapAuthorshipMatch = case_when(
+    multipleMappingsPossible & authorshipMatch == TRUE ~ TRUE, 
+    multipleMappingsPossible & authorshipMatch != TRUE ~ FALSE))
+
+## Check to make sure that mapping is 1:1 while accounting for authorship in multiple mappings.
+merged_names_df <- merged_names %>% 
+  filter(multipleMappingsPossible == TRUE) %>% 
+  filter(multMapAuthorshipMatch == TRUE) %>% 
+  group_by(nameMatch) %>% 
+  mutate(numDiffTaxStatsWithSameAuthor = n_distinct(wcvp_taxon_status)) %>% # num of distinct paths
+  ungroup() %>% 
+  filter(numDiffTaxStatsWithSameAuthor == 1) # Filter to the ones that are usable 
+
+## Create a field called multMapResolutionPossible that denotes whether in case there is multiple maps if AuthorshipMatch is possible, else other cases
+merged_names <- merged_names %>% 
+  mutate(multMapResolutionPossible = case_when(
+    nameMatch %in% merged_names_df$nameMatch & multMapAuthorshipMatch == TRUE ~ TRUE,
+    multipleMappingsPossible == FALSE ~ NA, # if we dont need this leave as NA
+    TRUE ~ FALSE # else make it false...
+  ))
+
+## Report number of names recovered using Authorship as mapping 
+x <- merged_names %>% 
+  group_by(multMapResolutionPossible) %>% 
+  summarize(n = n())
+
+## Remove names that are multiple mapping but cannot be resolved via authorship matching
+merged_names <- merged_names %>% 
+  filter(multMapResolutionPossible == TRUE & multipleMappingsPossible == TRUE | multipleMappingsPossible == FALSE | is.na(multMapAuthorshipMatch)) %>% # note this is added to this ncbi script because we are appending a bunch of names that do NOT have an authorship in order to fill out the tree 
+  mutate(authorshipInAcceptedName = ifelse(wcvp_taxon_status == "Accepted", TRUE, FALSE))
+
+## Create a summary of alignment status 
+alignment_summary <- merged_names %>% 
+  group_by(wcvp_taxon_status) %>% 
+  summarize(n = n()) 
+
+## remove names that do not find an alignment 
+merged_names_wcvp <- merged_names %>% 
+  #mutate(source = "wcvp") %>% 
+  filter(!wcvp_taxon_status == "Unplaced" & !is.na(wcvp_taxon_status))
+
+
+## Create relational table that denotes where each name should map to 
+wcvp_accepted_mapping <- wcvp_backbone[taxon_status == "Accepted"]
+wcvp_synonym_mapping <- wcvp_backbone[taxon_status %in% c("Synonym", "Illegitimate", "Invalid", "Misapplied", "Orthographic")]
+
+## Select cols of interest
+accepted_mapping <- wcvp_accepted_mapping[, c("accepted_plant_name_id", "taxon_name", "powo_id", "taxon_authors"), with = FALSE]
+synonym_mapping <- wcvp_synonym_mapping[, c("accepted_plant_name_id", "taxon_name", "powo_id", "taxon_authors"), with = FALSE]
+
+## Create a relational table for wcvp relations
+wcvp_relations <- merge(accepted_mapping, synonym_mapping, 
+                        by.x = "accepted_plant_name_id",
+                        by.y = "accepted_plant_name_id", 
+                        all.x = TRUE)
+
+# Rename fields for clarity
+wcvp_relations <- wcvp_relations %>% 
+  rename(acceptedName = taxon_name.x,
+         synonym = taxon_name.y,
+         accepted_powo_id = powo_id.x, 
+         synonym_powo_id = powo_id.y, 
+         accepted_taxon_authors = taxon_authors.x, 
+         synonym_taxon_authors = taxon_authors.y)
+
+## Check for multiple word counts 
+wcvp_relations <- wcvp_relations %>% 
+  mutate(word_count = str_count(acceptedName, "\\s+") + 1)
+
+## old code, dont use this 
+
+# wcvp_relations <- wcvp_relations %>% 
+#   bind_rows(wcvp_relations %>% 
+#               filter(word_count > 2) %>% 
+#               distinct(acceptedName, .keep_all = TRUE) %>% 
+#               mutate(synonym = acceptedName, 
+#                      synonym_taxon_authors = accepted_taxon_authors, 
+#                      synonym_powo_id = accepted_powo_id)) %>% 
+#   mutate(acceptedNameParent = ifelse(word_count > 2, 
+#                                      stringr::word(acceptedName, 1, 2), 
+#                                      acceptedName))
+
+## 
+accepted_matched_names_wcvp <- filter(merged_names_wcvp, wcvp_taxon_status == "Accepted")
+accepted_half_merge <- merge(wcvp_relations, accepted_matched_names_wcvp, by.x = "accepted_powo_id", by.y = "powo_id", all.x = TRUE)
+synonym_matched_names_wcvp <- filter(merged_names_wcvp, wcvp_taxon_status != "Accepted")
+synonym_half_merge <- merge(wcvp_relations, synonym_matched_names_wcvp, by.x = "synonym_powo_id", by.y = "powo_id", all.y = TRUE) 
+merged_df <- rbind(accepted_half_merge, synonym_half_merge)
+merged_df_less <- select(merged_df, acceptedName, synonym)
+
+## rename cols
+# clean up naming on cols
+merged_df_t <- merged_df %>% 
+  rename(acceptedNameMultMapsPossible = multipleMappingsPossible,
+         acceptedNameSpacelessWCVPAuthorship = spacelessWCVPAuthorship, 
+         acceptedNameAuthorshipMatch = authorshipMatch,
+         acceptedNameMultMapResolutionPossible =  multMapResolutionPossible, 
+         synonymNameWCVPAuthorship = synonym_taxon_authors)
+
+# filter down to just things with ncbi names
+merged_df_f <- merged_df_t %>% 
+  filter(!is.na(ncbiMappedSpecies)) %>% 
+  distinct(.keep_all = TRUE)
+
+# deal with synonym multiple mapping logic 
+
+## more cleaning name cols
+# clean up naming on cols
+merged_dc_df <- merged_df_f %>% 
+  mutate(acceptedNameScientificNameAuthorship = case_when( # added this casewhen conditional to deal with some of the complexities concerning when things are actually multiple mapping and their accepted authorship.
+    authorshipInAcceptedName == TRUE & !is.na(original_authorship) ~ original_authorship, 
+    authorshipInAcceptedName == FALSE ~ accepted_taxon_authors, 
+    is.na(authorshipInAcceptedName) ~ accepted_taxon_authors,
+    authorshipInAcceptedName == TRUE & is.na(original_authorship) ~ accepted_taxon_authors)) %>% 
+  mutate(acceptedNameScientificNameAuthorship = gsub(" ", "", acceptedNameScientificNameAuthorship)) %>% 
+  mutate(acceptedNameScientificNameAuthorship = tolower(acceptedNameScientificNameAuthorship)) 
+
+### Denote whether multiple mappings are possible for Synonyms  
+multiple_s_mappings <- merged_dc_df %>%
+  group_by(synonym) %>% 
+  mutate(numDiffAcceptedNames = case_when(
+    !is.na(synonym) ~ length(unique((acceptedName))),
+    is.na(synonym ) ~ 0))
+
+syn_mult_maps <-
+  filter(merged_dc_df, multiple_s_mappings$numDiffAcceptedNames > 1)
+
+merged_dc_df$synonymMultMapPossible <- ifelse(merged_dc_df$synonym %in% syn_mult_maps$synonym, TRUE, FALSE)
+
+merged_dc_df <- merged_dc_df %>% 
+  mutate(synonymNameSpacelessWCVPAuthorship = tolower(gsub(" ", "", synonymNameWCVPAuthorship))) %>% 
+  select(-accepted_taxon_authors, -original_authorship, -spacelessOurAuthorship, -multMapAuthorshipMatch, -acceptedNameMultMapResolutionPossible, -authorshipInAcceptedName) %>% 
+  rename(wcvp_aligned_name = acceptedName,
+         wcvp_aligned_synonym = synonym)
+
+final_alignment_df <- merged_dc_df
+```
+
+Append Geographic Info 
+```{r}
+wcvp_distribution_tb <- fread("/home/millerjared/blue_guralnick/millerjared/BoCP/data/raw/wcvp_distribution.csv")
+
+wcvp_name_tb <- fread("/home/millerjared/blue_guralnick/millerjared/BoCP/data/raw/wcvp_names.csv")
+
+# select for relevant info 
+wcvp_names <- wcvp_name_tb %>% 
+  select(plant_name_id, taxon_name, taxon_authors, taxon_status)
+
+# merge names with distribution info.
+wcvp_names_w_dist <- merge(wcvp_names, wcvp_distribution_tb, by = "plant_name_id")
+
+# filter this distributional info table to include the names of our wcvp_aligned_names
+na_wcvp_names_w_dist <- wcvp_names_w_dist %>% 
+  filter(taxon_name %in% final_alignment_df$wcvp_aligned_name) 
+
+# select for relevant info
+na_wcvp_names_w_dist <- select(na_wcvp_names_w_dist, plant_name_id, taxon_name, continent, region_code_l2, region, area_code_l3,
+                               area, introduced, extinct, location_doubtful)
+
+# figure out whether there are any occurrences for a species in NA 
+na_wcvp_names_w_dist_annotated <- na_wcvp_names_w_dist %>%
+  group_by(taxon_name) %>% 
+  mutate(presentInNorthAmerica = ifelse(any(continent == "NORTHERN AMERICA"),TRUE, FALSE)) %>% 
+  ungroup()
+
+# select for simplicity
+na_wcvp_names_w_dist_annotated_l <- na_wcvp_names_w_dist_annotated %>% 
+  select(plant_name_id, taxon_name, presentInNorthAmerica) %>% 
+  distinct(.keep_all = TRUE)
+
+# merge with our final alignment to add geographic info 
+final_alignment_w_geo <- merge(final_alignment_df, na_wcvp_names_w_dist_annotated_l, by.x = "wcvp_aligned_name", by.y = "taxon_name")
+
+
+```
+
+Now! Append geographic info to phylogeny...
+```{r}
+
+# truncate the alignment now so that we only have to pay attention to what ncbi says while being able to say what geographic region its from 
+ncbi_names_w_geo <- final_alignment_w_geo %>% 
+  distinct(ncbiMappedSpecies,presentInNorthAmerica, .keep_all = TRUE)
+
+# check for weird things occuring with alignment and geo
+test <- ncbi_names_w_geo %>% 
+  group_by(ncbiMappedSpecies) %>% 
+  mutate(n = n_distinct(presentInNorthAmerica)) # appears we're good
+
+# add a field that concatenates the status of being in or out of north america to the ncbiMappedSpecies
+ncbi_names_w_geo <- ncbi_names_w_geo %>% 
+  mutate(ncbiMappedSpeciesGeo = ifelse(presentInNorthAmerica, paste0(ncbiMappedSpecies, " In North A."), paste0(ncbiMappedSpecies, " not in North A.")))
+
+# Bring in the original tree
+poa_tree <- ape::read.tree("/home/millerjared/blue_guralnick/millerjared/BoCP/data/processed/tree-outputs/RAxML_bestTree.POAOUT_rax.rr.pr")
+
+
+# Create a named vector to map IDs to names
+id_to_name <- setNames(ncbi_names_w_geo$ncbiMappedSpeciesGeo, ncbi_names_w_geo$acceptedNameUsageIDLess)
+# Replace the IDs in tip.label with corresponding names, assigning NA if not found
+poa_tree$tip.label <- ifelse(!poa_tree$tip.label %in% names(id_to_name), NA, id_to_name[poa_tree$tip.label])
+
+# Define the tip colors based on nameAlignmentFound
+ncbi_names_w_geo$tip_color <- ifelse(ncbi_names_w_geo$nameAlignmentFound, "10", "9")
+
+# Create a named vector to map tip colors to tip labels
+tip_color_map <- setNames(ncbi_names_w_geo$tip_color, ncbi_names_w_geo$ncbiMappedSpecies)
+
+# Append color information to the updated tip labels, skipping NAs
+poa_tree$tip.label <- ifelse(
+  is.na(poa_tree$tip.label),
+  NA,
+  paste0(poa_tree$tip.label, "[&data=", tip_color_map[poa_tree$tip.label], "]")
+)
+
+# Export the modified tree with aligned names and colors
+write.tree(poa_tree, file = "/home/millerjared/blue_guralnick/millerjared/BoCP/outputs/poa_tree_names_aligned.pr")
+
+```
+
+
+
+```{r}
+# Bring in the original tree
+poa_tree <- ape::read.tree("/home/millerjared/blue_guralnick/millerjared/BoCP/data/processed/tree-outputs/RAxML_bestTree.POAOUT_rax.rr.pr")
+
+# Define the tip colors based on nameAlignmentFound
+ncbi_names_w_geo$tip_color <- ifelse(ncbi_names_w_geo$nameAlignmentFound, "10", "9")
+
+# Create a named vector to map tip colors to accepted IDs
+tip_color_map <- setNames(ncbi_names_w_geo$tip_color, ncbi_names_w_geo$acceptedNameUsageIDLess)
+
+# Safely match tip colors to tree tip labels
+matched_tip_colors <- tip_color_map[match(poa_tree$tip.label, names(tip_color_map))]
+
+# Create a named vector to map IDs to species names
+id_to_name <- setNames(ncbi_names_w_geo$ncbiMappedSpeciesGeo, ncbi_names_w_geo$acceptedNameUsageIDLess)
+
+# Replace tip labels with species names (mapped IDs), preserving unmatched labels as-is
+updated_tip_labels <- id_to_name[match(poa_tree$tip.label, names(id_to_name))]
+updated_tip_labels[is.na(updated_tip_labels)] <- poa_tree$tip.label[is.na(updated_tip_labels)]  # Keep original label if no match
+
+# Append color information to the updated tip labels
+poa_tree$tip.label <- ifelse(
+  is.na(matched_tip_colors),
+  updated_tip_labels,  # Keep label unchanged if no color match
+  paste0(updated_tip_labels, "[&data=", matched_tip_colors, "]")  # Append color data
+)
+
+# Replace any final NA labels with "NA" explicitly
+poa_tree$tip.label[is.na(poa_tree$tip.label)] <- "NA"
+
+# Optional: Verify output
+print(poa_tree$tip.label)
+
+# Export the modified tree to a newick file
+write.tree(poa_tree, file = "/home/millerjared/blue_guralnick/millerjared/BoCP/outputs/poa_tree_names_aligned.pr")
+
+
+```
+
