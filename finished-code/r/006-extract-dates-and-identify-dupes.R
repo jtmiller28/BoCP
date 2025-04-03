@@ -25,6 +25,11 @@ name_list <- readRDS("/blue/guralnick/millerjared/BoCP/data/processed/name_list.
 list_found_names <- list.files("/blue/guralnick/millerjared/BoCP/data/processed/flagged-species-occs/")
 list_found_names <- gsub("-", " ", list_found_names)
 list_found_names <- gsub(".csv", "", list_found_names)
+# check current contents 
+list_done_names <- list.files("/blue/guralnick/millerjared/BoCP/data/processed/dupe-flagged/")
+list_done_names <- gsub("-", " ", list_done_names)
+list_done_names <- gsub(".csv", "", list_done_names)
+length(list_found_names) == length(list_done_names) # fin
 # extract data
 names_to_retrieve <- list_found_names[[task_id]]
 accepted_name <- names_to_retrieve[1]
@@ -33,7 +38,7 @@ print(paste("reading in data for", accepted_name))
 # read in the species occurrence table 
 occ_data <- fread(paste0("/blue/guralnick/millerjared/BoCP/data/processed/flagged-species-occs/", accepted_name_file_style, ".csv"))
 print(paste("Parsing date if possible", accepted_name))
-if(class(occ_data$eventDate) == "character"){ # note that this will remove nuanced records. 
+if ("character" %in% class(occ_data$eventDate)) { 
   occ_data$eventDate <- as.Date(occ_data$eventDate, format = "%Y-%m-%d")
 } else {
   
@@ -116,5 +121,5 @@ occ_data <- occ_data %>%
 
 # Select and clean up df
 occ_data <- occ_data %>% 
-  select(-AggDuplicateGroupID, -specimenDuplicateGroupID, -occID_lower, -completeness_score)
+  select(-occID_lower, -completeness_score)
 fwrite(occ_data, paste0("/blue/guralnick/millerjared/BoCP/data/processed/dupe-flagged/", accepted_name_file_style, ".csv"))

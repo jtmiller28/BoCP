@@ -24,8 +24,24 @@ part <- paste0("part", task_id)
 # read the taxonomic harmonized list of names + synonyms
 name_list <- readRDS("/blue/guralnick/millerjared/BoCP/data/processed/name_list.rds")
 
+# check for names that have already been retrieved
+list_found_names <- list.files("/blue/guralnick/millerjared/BoCP/data/processed/species-occs/")
+list_found_names <- gsub("-", " ", list_found_names)
+list_found_names <- gsub(".csv", "", list_found_names)
+# retrieve accepted names 
+accepted_name_retrieval_list <- list()
+for(i in 1:length(name_list)){
+accepted_names_retrieval <- name_list[[i]][1]
+accepted_name_retrieval_list[[i]] <- accepted_names_retrieval
+}
+accepted_name_retrieval_vector <- do.call(rbind, accepted_name_retrieval_list)
+# check diff between dir names and total names to call
+names_not_found <- setdiff(accepted_name_retrieval_vector, list_found_names)
+# extract 
+# Extract elements where any name in the list matches a target name
+name_list_update <- name_list[sapply(name_list, function(x) any(x %in% names_not_found))]
 # use task id as an index to grab out the set of names, format for SQL LIKE query, format taxon name for file storage. 
-names_to_retrieve <- name_list[[task_id]]
+names_to_retrieve <- name_list_update[[task_id]]
 names_to_retrieve_query <- toupper(names_to_retrieve)
 names_to_retrieve_query <- gsub(" ", "%", names_to_retrieve_query)
 accepted_name <- names_to_retrieve[1]
@@ -73,7 +89,7 @@ idigbio_df <- idigbio_df %>% mutate(taxonomicExactMatch = ifelse(toupper(canonic
 print("gbif parsing name, and taxonomic check")
 ## gbif
 if(nrow(gbif_df) > 0){
-gbif_df_names_parsed <- gn_parse_tidy(na.omit(gbif_df$verbatimScientificName))
+gbif_df_names_parsed <- gn_parse_tidy(na.omit(gbif_df$verbatimScientificName)) # note, there are extreme cases where parsing fails causing memory leak error. 
 gbif_df_names_parsed <- gbif_df_names_parsed %>% mutate(n = 1:n()) %>% select(canonicalfull, n)
 gbif_df <- gbif_df %>% mutate(n = 1:n())
 gbif_df <- merge(gbif_df, gbif_df_names_parsed, by = "n")

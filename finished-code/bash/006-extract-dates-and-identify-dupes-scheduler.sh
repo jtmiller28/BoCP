@@ -1,21 +1,21 @@
 #!/bin/bash
 
-#SBATCH --job-name=building-sp-tables              # Job name
+#SBATCH --job-name=extract-dates-and-id-dupes             # Job name
 #SBATCH --mail-type=FAIL,ARRAY_TASKS     # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mail-user=jtmiller@ucsb.edu    # Where to send mail
-#SBATCH --output=/blue/guralnick/millerjared/BoCP/logs/build-sp-tables/sp-table-build%A-%a.out                 # Standard output and error log
+#SBATCH --output=/blue/guralnick/millerjared/BoCP/logs/dupe-flags/dupe-flagging%A-%a.out                 # Standard output and error log
 #SBATCH --nodes=1                        # Run all processes on a single node
 #SBATCH --ntasks=1                       # Run a single task
 #SBATCH --cpus-per-task=1               # Number of CPU cores per task
-#SBATCH --mem-per-cpu=16gb                   # Job memory request
+#SBATCH --mem-per-cpu=10gb                   # Job memory request
 #SBATCH --time=00-96:00:00               # Time limit days-hrs:min:sec
-#SBATCH --array=1                  # Array Range
+#SBATCH --array=1-20                  # Array Range
 #SBATCH --account=soltis             # We're using Guralnick
 #SBATCH --qos=soltis-b                # We're using Guralnick resources
 pwd; hostname; date
 
 # Set the number of runs that each SLURM task should do
-PER_TASK=13 
+PER_TASK=1891
 
 # Calc the starting and ending values for this task based on the SLURM task and the num of runs per task
 START_NUM=$(( ($SLURM_ARRAY_TASK_ID - 1) * $PER_TASK + 1 ))
@@ -36,7 +36,7 @@ export START_NUM=$run
 module load R/4.3
 
 #do some (or alot) of coding
-Rscript --vanilla /blue/guralnick/millerjared/BoCP/finished-code/r/004-build-species-tables.R
+Rscript --vanilla /blue/guralnick/millerjared/BoCP/finished-code/r/006-extract-dates-and-identify-dupes.R
 
 done
 
