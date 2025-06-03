@@ -184,13 +184,15 @@ ncbi_relations_check <- ncbi_relations %>%
     ncbiNameStatus == "synonym" ~ "Synonym"
   )) %>% 
   mutate(ncbiAlignedNameStatus = str_to_title(ncbiAlignedNameStatus)) %>% 
-  mutate(ncbiParentAlignedName = str_extract(ncbiAlignedName, "^\\w+ \\w+")) %>%
+  #mutate(ncbiParentAlignedName = str_extract(ncbiAlignedName, "^\\w+ \\w+")) %>%
+  mutate(ncbiParentAlignedName = word(ncbiAlignedName, 1, 2)) %>% 
   select(ncbiAlignedOrder, ncbiAlignedFamily, ncbiAlignedGenus, ncbiAlignedName, ncbiParentAlignedName, ncbiAlignedAuthor, ncbiAlignedNameStatus, ncbiName, ncbiAuthor, ncbiNameStatus, source, ncbiAcceptedNameUsageID) %>% 
   filter(str_count(ncbiAlignedName, "\\w+") > 1)
 
 wcvp_relations_check <- wcvp_relations %>% 
   mutate(source = "wcvp") %>% 
-  mutate(wcvpParentAlignedName = str_extract(wcvpAlignedName, "^\\w+ \\w+")) %>%
+  #mutate(wcvpParentAlignedName = str_extract(wcvpAlignedName, "^\\w+ \\w+")) %>%
+  mutate(wcvpParentAlignedName = word(wcvpAlignedName, 1, 2)) %>% 
   select(wcvpAlignedFamily, wcvpAlignedGenus, wcvpAlignedName, wcvpParentAlignedName, wcvpAlignedNameAuthors, wcvpAlignedNameStatus, wcvpName, wcvpNameAuthors, wcvpNameStatus, source) %>% 
   filter(str_count(wcvpAlignedName, "\\w+") > 1) # removes genera level alignment
 
@@ -234,4 +236,11 @@ final_table <- output_df %>%
   distinct() %>% 
   mutate(nameStatus = ifelse(alignedName == name, "Accepted", "Synonym"))
 
-fwrite(final_table, "./data/processed/wcvp-ncbi-alignment.csv")
+# additional step after fixing specificEpithet truncation, removal of '×' ending hybrids...these are invalid 
+final_table <- final_table %>%
+  #filter(!grepl("×$", alignedParentName)) %>%  # remove things that end with '×'
+  mutate(alignedParentName = ifelse(grepl("×$", alignedParentName), "", alignedParentName)) %>% 
+  mutate(alignedParentName = ifelse(grepl("^×", alignedParentName), "", alignedParentName)) 
+  #filter(!grepl("^×", alignedParentName)) # remove things that begin with '×'
+
+fwrite(final_table, "./data/processed/wcvp-ncbi-alignment-6-25.csv")
