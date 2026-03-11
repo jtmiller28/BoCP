@@ -73,8 +73,8 @@ pruned_inf_tree$tip_labels_trimmed <- NULL
 # pruned_new_tree$tip.label.tidy <-  gsub("^[^_]+_[^_]+_", "", pruned_new_tree$tip.label)
 # pruned_new_tree$tip.label.tidy <- gsub("_", " ", pruned_new_tree$tip.label.tidy)
 # write these files as outputs to check
-write.tree(pruned_molc_tree, "/blue/guralnick/millerjared/BoCP/outputs/pruned-trees/pruned-molc-tree-04-08-2025.tre")
-write.tree(pruned_inf_tree, "/blue/guralnick/millerjared/BoCP/outputs/pruned-trees/pruned-tax-inf-tree-04-08-2025.tre")
+write.tree(pruned_molc_tree, "/blue/guralnick/millerjared/BoCP/outputs/pruned-trees/pruned-molc-tree-07-01-2025.tre")
+write.tree(pruned_inf_tree, "/blue/guralnick/millerjared/BoCP/outputs/pruned-trees/pruned-tax-inf-tree-07-01-2025.tre")
 
 # checking unmatched tree for taxonomic changes 
 unmatched_tree <- ape::read.tree("/blue/guralnick/millerjared/BoCP/data/processed/tree-outputs/smith-trees-april-2025/polypod_acro_angio_dated_STANDARD_ERIC.tre.fam_ord.tre")

@@ -30,6 +30,15 @@ list_done_names <- list.files("/blue/guralnick/millerjared/BoCP/data/processed/d
 list_done_names <- gsub("-", " ", list_done_names)
 list_done_names <- gsub(".csv", "", list_done_names)
 length(list_found_names) == length(list_done_names) # fin
+#### Update: removal of failed hypennames, run once. #####
+# old_v_hyphens <- sub("-.*", "", names_not_found)
+# old_v_hyphens_filestyle <- sub(" ", "-", old_v_hyphens)
+# old_v_hyphens_filestyle <- paste0(old_v_hyphens_filestyle, ".csv")
+# file_paths_to_remove <-file.path("/blue/guralnick/millerjared/BoCP/data/processed/flagged-species-occs/", old_v_hyphens_filestyle)
+# files_to_delete <- file_paths_to_remove[file.exists(file_paths_to_remove)]
+# cat("Deleting files:\n", paste(files_to_delete, collapse = "\n"), "\n")
+# file.remove(files_to_delete)
+##########################################################
 # extract data
 names_to_retrieve <- list_found_names[[task_id]]
 accepted_name <- names_to_retrieve[1]

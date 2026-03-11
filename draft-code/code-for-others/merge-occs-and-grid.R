@@ -2,45 +2,134 @@
 ### Author: JT Miller
 ### Date: 04/18/2025
 
-# Purpose, find how to effectively integrate israel's datasets and our point occurrences at 50x50km and 25x25km, and provide figures to show how well modeling might work given these data
-
 ## Load Libraries 
 library(tidyverse)
 library(data.table)
 library(sf)
+library(terra)
 
-## Load in botanical regions 
+## Set up Array tasks for SLURM scheduler
+start_num <- as.numeric(Sys.getenv("START_NUM"))
+task_id <- as.numeric(start_num)
+part <- paste0("part", task_id)
+
+## pull out species for this task 
+species_files <- list.files("/blue/guralnick/millerjared/BoCP/data/processed/fully-flagged-data/")
+### only use this code to finish stragglers that errored out
+finished <- list.files("/blue/guralnick/millerjared/BoCP/data/processed/grid-project/raster-25x25km/")
+finished <- gsub("-25km.tif", "", finished)
+species_files_grab <- gsub(".csv", "", species_files)
+species_files <- setdiff(species_files_grab, finished)
+species_files <- paste0(species_files, ".csv")
+############################################################
+species_file_style <- species_files[task_id]
+species_rds_style <- gsub(".csv", ".rds", species_file_style)
+species <- gsub("-", " ", species_file_style)
+species <- gsub(".csv", "", species)
+
+## Load in shapefile of world botanical regions to allow for occ data full world extent down the line
 bot_regions <- read_sf("./data/raw/level3-wgsrpd/level3.shp")
 
-## grab relevant regions for Israel's analysis (contiguous US and Canada)
-na_string <- c("ALA", "ABT", "ASK", "ARI", "ARK", "BRC", "CAL", "COL", "CNT", "DEL",
-               "GEO", "FLA", "IDA", "IOW", "ILL","INI", "KAN", "MAN", "LOU", "KTY", "MAI",
-               "MNT", "MIN", "MIC", "MAS", "MSO", "MSI", "MRY",  "NDA", "NCA", "NBR", "NEV", "NEB", "NFL", "NUN", "NSC", 
-               "NWT", "NWM", "OHI", "NWJ", "NWH", "NWY", "ORE", "ONT", "OKL", "PEN", "PEI", "QUE",
-               "RHO", "SAS", "SDA", "SCA", "TEX", "TEN", "UTA", "VRG", "VER", "WAS", "WIS", "WDC", "WVA",
-               "WYO", "LAB", "YUK") # removed "MXE","MXN","MXC",  "MXG", "MXS", "MXT", 
+## Read in relevant data
+# point occurrences from BoCP 
+if(any(species_file_style %in% species_files) == TRUE){
+point_occs <- fread(paste0("/blue/guralnick/millerjared/BoCP/data/processed/fully-flagged-data/", species_file_style))
+} else {
+  point_occs <- NULL
+}
+# centroid data from NatureServe
+ns_sp_files <- list.files("/blue/guralnick/millerjared/BoCP/data/raw/grid-data/na-rare-plant-grid-data/NA spatial phylogenetics/ns-grids-species/")
+if(any(species_rds_style %in% ns_sp_files == TRUE)){
+ns_cen_data <- readRDS(paste0("/blue/guralnick/millerjared/BoCP/data/raw/grid-data/na-rare-plant-grid-data/NA spatial phylogenetics/ns-grids-species/", species_rds_style))
+ns_cen_data <- ns_cen_data %>% rename(species = alignedParentName)
+} else{
+  ns_cen_data <- NULL
+}
+# centroid data from Canada
+can_sp_files <- list.files("/blue/guralnick/millerjared/BoCP/data/raw/grid-data/na-rare-plant-grid-data/NA spatial phylogenetics/can-grids-species/")
+if(any(species_rds_style %in% can_sp_files == TRUE)){
+can_cen_data <- readRDS(paste0("/blue/guralnick/millerjared/BoCP/data/raw/grid-data/na-rare-plant-grid-data/NA spatial phylogenetics/can-grids-species/", species_rds_style))
+can_cen_data <- can_cen_data %>% rename(species = alignedParentName)
+} else{
+  can_cen_data <- NULL
+}
+## Data cleaning for point occs 
+if(!is.null(point_occs)){
+point_occs <- point_occs %>% 
+  filter(taxonomicExactMatch == TRUE) %>% 
+  filter(wgs84Datum == TRUE) %>% 
+  filter(coordinateIssue == FALSE) %>% 
+  filter(trueCoordsWithheld == FALSE) %>% 
+  filter(wcvpRangeStatus == "native") %>% # include both datasets native&introduced and native
+  filter(validRecord == TRUE) %>% 
+  filter(equalLatLon == FALSE) %>% 
+  filter(zeroCoords == FALSE) %>% 
+  filter(capitalCoord == FALSE) %>% 
+  filter(centroidCoord == FALSE) %>% 
+  filter(inOceanCoord == FALSE) %>% 
+  filter(inGBIFHeadquarters == FALSE) %>% 
+  filter(inInstitutionBounds == FALSE)
+if(nrow(point_occs) > 0){
+# Deduplicate data where applicable 
+point_occs <- point_occs %>%
+  filter(!amongAggDuplicate | is.na(AggDuplicateGroupID)) %>% # Keep non-duplicates
+  bind_rows( # Add in the lowest-ranked duplicates
+    point_occs %>%
+      filter(amongAggDuplicate) %>%
+      group_by(AggDuplicateGroupID) %>%
+      filter(AggDuplicateRank == min(AggDuplicateRank, na.rm = TRUE)) %>%
+      slice(1) %>%  # if tied for lowest rank, just take the first
+      ungroup()
+  )
 
-# Filter regions to remove
-na_regions <- filter(bot_regions, LEVEL3_COD %in% na_string)
+point_occs <- point_occs %>%
+  filter(!specimenDuplicate | is.na(specimenDuplicateGroupID)) %>% # Keep non-duplicates
+  bind_rows( # Add in the lowest-ranked duplicates
+    point_occs %>%
+      filter(specimenDuplicate) %>%
+      group_by(specimenDuplicateGroupID) %>%
+      filter(specimenDuplicateRank == min(specimenDuplicateRank, na.rm = TRUE)) %>%
+      slice(1) %>%  # if tied for lowest rank, just take the first
+      ungroup()
+  )
+}
+# additionally, depending on the resolution we want to filter out coordinate uncertainty that we can live with
+if(nrow(point_occs) > 0){
+point_occs_50 <- point_occs  %>% 
+  filter(coordinateUncertaintyInMeters <= 25000 | is.na(coordinateUncertaintyInMeters)) # we're just going with half as a rule
+point_occs_25 <- point_occs %>% 
+  filter(coordinateUncertaintyInMeters <= 12500 | is.na(coordinateUncertaintyInMeters))
+} else{
+  point_occs_50 <- NULL
+  point_occs_25 <- NULL
+}
+# finally assign to sf object 
+if(!is.null(point_occs_50)){
+point_occs_50 <- st_as_sf(point_occs_50, coords = c("roundedLongitude", "roundedLatitude"), crs = 4326)
+} else {
+  point_occs_50 <- NULL
+}
+if(!is.null(point_occs_25)){
+point_occs_25 <- st_as_sf(point_occs_25, coords = c("roundedLongitude", "roundedLatitude"), crs = 4326)
+} else {
+  point_occs_25 <- NULL
+}
+}
+# Log the number of outliers for further reference
+if(!is.null(point_occs)){
+  hold_df <- data.frame(
+    species = species,
+    n_outliers = nrow(filter(point_occs, distOutlier == TRUE))
+  )
+  fwrite(hold_df, file = "/home/millerjared/blue_guralnick/millerjared/BoCP/outputs/sp-occs-outliers.csv", 
+         append = TRUE, col.names = !file.exists("/home/millerjared/blue_guralnick/millerjared/BoCP/outputs/sp-occs-outliers.csv"))
+  
+}
+### Set up Spatial Grids 
 
-# make plot thats more visually easy to see as an extent plot 
-ggplot() + 
-  geom_sf(data = bot_regions) + 
-  geom_sf(data = na_regions, fill = "darkred", color = "black") + 
-  ggtitle("USA and Canada for Endemic Pixel Project")
-
-## First lets work with the Nature Serve (NS) data, which is in a flavor of Albers Equal Area grids that I've extracted the exact projection using QGIS tools on the file called Element_occurrences_01_2023Update provided by Israel
+## nature serve; assign CRS manually; build 50x50km res to the extent of the original shapefile
 crs_102008 <- "+proj=aea +lat_1=20 +lat_2=60 +lat_0=40 +lon_0=-96 
-               +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs"
-
-# reproj our na regions to this projection 
-na_regions_aea <- st_transform(na_regions, crs = crs_102008)
-
-# plot to check if things are askew 
-ggplot() + 
-  geom_sf(data = na_regions_aea, fill = "darkred", color = "black") + 
-  ggtitle("USA and Canada for Endemic Pixel Project")
-
+               +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs" # extracted from QGIS
 # create a 50x50km grid that matches the extent of the NS data, extent was retrieved manually by reviewing the same file mentioned above in QGIS
 x_min <- -5105000.0000000000000000
 y_min <- -2905000.0000000000000000
@@ -48,89 +137,187 @@ x_max<- 3045000.0001220712438226
 y_max <- 4645000.0001220703125000
 ns_bbox <- st_bbox(c(xmin = x_min, ymin = y_min, xmax = x_max, ymax = y_max), crs = crs_102008)
 ns_grid <- st_make_grid(ns_bbox, cellsize = c(50000, 50000), what = "polygons", square = TRUE)
+ns_grid_sf <- st_sf(id = 1:length(ns_grid), geometry = ns_grid)
+# reproj the underlying centroid data to the AEA proj that came with the files
+if(!is.null(ns_cen_data)){
+ns_cen_data <- st_set_crs(ns_cen_data, crs_102008)
+}
+## canada; load the 10x10km res grid
+canada_grid <- read_sf("/blue/guralnick/millerjared/BoCP/data/raw/grid-data/na-rare-plant-grid-data/NA spatial phylogenetics/NAm_cell_template_10km/NAm_cell_template_10km.shp")
+canada_grid <- canada_grid %>% 
+  select(-Id, -GRID_ID) %>% 
+  mutate(id = 1:n())
 
-# plot to see if this looks about right 
-ggplot() + 
-  geom_sf(data = na_regions_aea, fill = "darkred", color = "black") + 
-  geom_sf(data = ns_grid, fill = "black", alpha = 0.7) + 
-  ggtitle("USA and Canada with 50x50km grid \n for Endemic Pixel Project")
+## For point data, we need to do some reproj on rasters so it'll come later 
 
-# now load in Israel's NS centroid data per species 
-nature_serve_centroids <- read_sf("/blue/guralnick/millerjared/BoCP/data/raw/grid-data/na-rare-plant-grid-data/NA spatial phylogenetics/tns_points.shp")
-
-# reproj these to the AEA proj 
-nature_serve_centroids <- st_set_crs(nature_serve_centroids, crs_102008)
-
-# create a test set of names (determined prior by a summary of 10-20 unique centroid points)
-test_names <- c("Tumamoca macdougalii", "Heuchera eastwoodiae", "Lachnanthes caroliniana", 
-                "Agalinis filicaulis", "Carex dasycarpa", "Rhexia salicifolia", "Parnassia asarifolia",
-                "Viburnum lentago", "Echinacea pallida", "Trillium sessile")
-
-for(i in 1:length(test_names)){
-  nature_serve_test <- nature_serve_centroids %>%  # extract species level centroid pts
-    filter(SNAME == test_names[i]) %>% 
-    st_transform(crs = st_crs(crs_102008))
-  bbox <- st_bbox(nature_serve_test) # create a bbox to view their extent
-  ggplot() +  
-    geom_sf(na_regions_aea, mapping = aes()) + 
-    geom_sf(ns_grid, mapping = aes(), alpha = 0.2) +
-    geom_sf(nature_serve_test, mapping = aes()) +
-    coord_sf(xlim = c(bbox["xmin"] - 10000, bbox["xmax"] + 10000), # add slight buffers so its viewable
-             ylim = c(bbox["ymin"] - 10000, bbox["ymax"] + 10000)) +
-    ggtitle(paste0("Nature Serve 50x50km presence data for ", test_names[i]))
-  ggsave(paste0("/blue/guralnick/millerjared/BoCP/outputs/example-grid-extractions/", test_names[i], "-NS-sample-zoom.png"), width = 10, height = 10)
+### Write a function for converting whichever layer we're working in into a raster of P/A
+sf_to_PA_raster <- function(sf.data, # the SF data being fed
+                            res, # the resolution of the data in meters, if point data use the desired resolution instead
+                            underlying.grid, # the underlying grid used to build the data (if applicable)
+                            outliers = TRUE, # whether we should include outliers
+                            map.outputs = FALSE # should an ggplot be generated for the points to presence comparisons?
+                            ){
+if(!is.null(sf.data)){
+if(outliers == FALSE){
+  sf.data <- sf.data %>% filter(distOutlier == FALSE)
+}
+}
+ if(is.null(sf.data)){
+   message("sf.data is NULL, creating empty matrix sf object")
+   sf.data <- sf::st_sf(
+     species = character(0), 
+     geometry = sf::st_sfc(crs = sf::st_crs(underlying.grid))
+   )
+ }
+  joined <- st_join(sf.data, underlying.grid, join = st_intersects)
+  presence <- unique(joined$id)
+  sp_grid <- underlying.grid %>% 
+    dplyr::mutate(presence = ifelse(id %in% presence, 1,0)) %>% 
+    dplyr::mutate(presence = as.factor(presence))
+  r_template <- rast(ext(sp_grid), 
+                     resolution = res, 
+                     crs = st_crs(sp_grid)$wkt)
+  r_presence <- rasterize(vect(sp_grid), 
+                          r_template, 
+                          field = "presence", 
+                          fun = "max")
   
-  ggplot() +  
-    geom_sf(na_regions_aea, mapping = aes()) + 
-    geom_sf(ns_grid, mapping = aes(), alpha = 0.1) +
-    geom_sf(nature_serve_test, mapping = aes()) +
-     coord_sf(xlim = c(bbox["xmin"] - 1000000, bbox["xmax"] + 1000000), # add slight buffers so its viewable
-              ylim = c(bbox["ymin"] - 1000000, bbox["ymax"] + 1000000)) +
-    ggtitle(paste0("Nature Serve 50x50km presence data for ", test_names[i]))
-  ggsave(paste0("/blue/guralnick/millerjared/BoCP/outputs/example-grid-extractions/", test_names[i], "-NS-sample-.png"), width = 10, height = 10)
+if(map.outputs == TRUE){
+  r_pts <- as.points(r_presence)
+  r_pts_sf <- st_as_sf(r_pts)
+  bbox <- st_bbox(filter(r_pts_sf, presence == 1))
+  sp <- unique(sf.data$species)
+  p <- ggplot() +
+    geom_sf(data = sf.data, color = "red", size = 1) +
+    geom_sf(data = r_pts_sf, aes(color = as.factor(presence)), size = 1, shape = 5) +
+    geom_sf(data = underlying.grid, fill = NA, color = "grey") +
+    scale_color_manual(values = c("white", "darkgreen")) +
+    coord_sf(xlim = c(bbox["xmin"] - 100000, bbox["xmax"] + 100000), # add slight buffers so its viewable
+             ylim = c(bbox["ymin"] - 100000, bbox["ymax"] + 100000)) +
+    ggtitle(paste0("Presence/Absence raster vs. points for ", sp )) +
+    theme_minimal()
+  print(p)
+}
+  return(r_presence)
+  
 }
 
-## Next lets use the same concept to delimit data for the 10x10km grid cells for canada. 
-# import canada grid Israel has provided 
-canada_grid <- read_sf("./data/raw/grid-data/na-rare-plant-grid-data/NA spatial phylogenetics/NAm_cell_template_10km/NAm_cell_template_10km.shp")
+## Use P/A raster function on our three data sets
+r_50 <- sf_to_PA_raster(sf.data = ns_cen_data, 
+                                 res = 50000, 
+                                 underlying.grid = ns_grid_sf, 
+                                 outliers = TRUE, # I built this slightly wrong, there are no outliers to filter in the centroided data so act like this is OFF (otherwise it'll cause errors)
+                                 map.outputs = FALSE)
+r_10 <- sf_to_PA_raster(sf.data = can_cen_data,
+                        res = 10000, 
+                        underlying.grid = canada_grid, 
+                        outliers = TRUE, 
+                        map.outputs = FALSE)
 
-# projection should be identical, so lets just reset up the bounding box 
-# x_min <- 1900000.0000000000000000
-# y_min <- 760000.0000000000000000
-# x_max<- 2670000.0000000000000000
-# y_max <- 1330000.0000000000000000
-# ca1_bbox <- st_bbox(c(xmin = x_min, ymin = y_min, xmax = x_max, ymax = y_max), crs = crs_102008)
-# ca1_grid <- st_make_grid(ca1_bbox, cellsize = c(10000, 10000), what = "polygons", square = TRUE)
-# read in the canada 10x10km centroid data
-canada1_centroids <- read_sf("/blue/guralnick/millerjared/BoCP/data/raw/grid-data/na-rare-plant-grid-data/NA spatial phylogenetics/canada1.shp")
-canada2_centroids <- read_sf("/blue/guralnick/millerjared/BoCP/data/raw/grid-data/na-rare-plant-grid-data/NA spatial phylogenetics/canada2.shp")
-# create a test set of names that are known prior 
-test_names <- c("Solidago brendae", "Lycopus laurentianus", "Elymus canadensis", 
-                "Astragalus eucosmus", "Elatine americana", "Astragalus eucosmus", 
-                "Stachys hispida", "Galearis rotundifolia", "Juncus greenei",
-                "Polygonum achoreum")
+## point data, create desired resolution grids that match the overall extents of the combined range of NS and canada data (note that this will disclude data outside of outerbounds of NA)
+# note that we need to deal with reprojections of nature serve vs canada data to do this, go with canada 10x10 projection since its the finer grain data
+r_50_proj <- project(r_50, r_10, method = "near")
+#combined_extent <- ext(r_50_proj) + ext(r_10) # old method, use proceeding code
+#bot_regions_proj <- st_transform(bot_regions, crs = crs(r_50_proj))
+bot_regions_proj <- st_transform(bot_regions, crs = crs("+proj=moll +lat_1=4 +datum=WGS84 +units=m +no_defs"))
+world_extent <- ext(bot_regions_proj)
 
-for(i in 1:length(test_names)){
-  can1_test <- canada2_centroids %>%  # extract species level centroid pts
-    filter(GNAME == test_names[i]) %>% 
-    st_transform(crs = st_crs(crs_102008))
-  bbox <- st_bbox(can1_test) # create a bbox to view their extent
-  ggplot() +  
-    geom_sf(na_regions_aea, mapping = aes()) + 
-    geom_sf(canada_grid, mapping = aes(), alpha = 0.2) +
-    geom_sf(can1_test, mapping = aes()) +
-    coord_sf(xlim = c(bbox["xmin"] - 10000, bbox["xmax"] + 10000), # add slight buffers so its viewable
-             ylim = c(bbox["ymin"] - 10000, bbox["ymax"] + 10000)) +
-    ggtitle(paste0("Canada1 10x10km presence data for ", test_names[i]))
-  ggsave(paste0("/blue/guralnick/millerjared/BoCP/outputs/example-grid-extractions/", test_names[i], "-CAN1-sample-zoom.png"), width = 10, height = 10)
-  
-  ggplot() +  
-    geom_sf(na_regions_aea, mapping = aes()) + 
-    geom_sf(ca1_grid, mapping = aes(), alpha = 0.1) +
-    geom_sf(can1_test, mapping = aes()) +
-    coord_sf(xlim = c(bbox["xmin"] - 1000000, bbox["xmax"] + 1000000), # add slight buffers so its viewable
-             ylim = c(bbox["ymin"] - 1000000, bbox["ymax"] + 1000000)) +
-    ggtitle(paste0("Canda1 10x10km presence data for ", test_names[i]))
-  ggsave(paste0("/blue/guralnick/millerjared/BoCP/outputs/example-grid-extractions/", test_names[i], "-CAN1-sample-.png"), width = 10, height = 10)
+combined_extent_50_grid <- st_make_grid(world_extent ,  # was combined extent
+                                        crs = crs(bot_regions_proj), # was r_50_proj
+                                        cellsize = c(50000, 50000))
+combined_extent_50_grid_sf <- st_sf(geometry = combined_extent_50_grid)
+combined_extent_50_grid_sf <- combined_extent_50_grid_sf %>% 
+  mutate(id = 1:n())
+# Test area and shapes to ensure correct area proj (dont use during array call)
+# grid_test <- combined_extent_50_grid_sf %>% 
+#   mutate( area_m2 = st_area(geometry),
+#           area_km2 = as.numeric(area_m2) / 1e6, 
+#           # Compute xdist (width) and ydist (height)
+#           bbox = map(geometry, st_bbox),
+#           xdist = map_dbl(bbox, ~ .x["xmax"] - .x["xmin"]),
+#           ydist = map_dbl(bbox, ~ .x["ymax"] - .x["ymin"])
+#    
+#   )
+combined_extent_25_grid <- st_make_grid(world_extent , # was combinedextnet
+                                        crs = crs(bot_regions_proj), 
+                                        cellsize = c(25000, 25000))
+
+combined_extent_25_grid_sf <- st_sf(geometry = combined_extent_25_grid)
+combined_extent_25_grid_sf <- combined_extent_25_grid_sf %>% 
+  mutate(id = 1:n())
+# Test area and shapes to ensure correct area proj (dont use during array call)
+# grid_test <- combined_extent_25_grid_sf %>% 
+#   mutate( area_m2 = st_area(geometry),
+#           area_km2 = as.numeric(area_m2) / 1e6, 
+#           # Compute xdist (width) and ydist (height)
+#           bbox = map(geometry, st_bbox),
+#           xdist = map_dbl(bbox, ~ .x["xmax"] - .x["xmin"]),
+#           ydist = map_dbl(bbox, ~ .x["ymax"] - .x["ymin"])
+#           
+#   )
+# transform point data to the resolution necessary
+if(!is.null(point_occs_50)){
+point_occs_50 <- st_transform(point_occs_50, crs = st_crs(combined_extent_50_grid))
+} else{
+  point_occs_50 <- NULL
 }
 
+if(!is.null(point_occs_25)){
+  point_occs_25 <- st_transform(point_occs_25, crs = st_crs(combined_extent_25_grid))
+} else{
+  point_occs_25 <- NULL
+}
+# continue running P/A
+r_point_50 <- sf_to_PA_raster(sf.data = point_occs_50,
+                              res = 50000, 
+                              underlying.grid = combined_extent_50_grid_sf, 
+                              outliers = FALSE, 
+                              map.outputs = FALSE)
+r_point_25 <- sf_to_PA_raster(sf.data = point_occs_25, 
+                              res = 25000, 
+                              underlying.grid = combined_extent_25_grid_sf, 
+                              outliers = FALSE,
+                              map.outputs = FALSE)
+
+## Create raster templates of 50x50 and 25x25 res to preform resampling on
+# template_50 <- rast(ext = combined_extent, resolution = 50000, crs = crs(r_50_proj))
+# template_25 <- rast(ext = combined_extent, resolution = 25000, crs = crs(r_50_proj))
+template_50 <- rast(ext = world_extent, resolution = 50000, crs = crs(r_50_proj))
+template_25 <- rast(ext = world_extent, resolution = 25000, crs = crs(r_50_proj))
+# Adjust projections 
+## Resample
+r_50_to_50 <- resample(r_50_proj, template_50, method = "max")
+r_50_to_25 <- resample(r_50_proj, template_25, method = "max")
+r_10_to_50 <- resample(r_10, template_50, method = "max")
+r_10_to_25 <- resample(r_10, template_25, method = "max")
+r_point_50_to_50 <- resample(r_point_50, template_50, method = "max")
+r_point_25_to_25 <- resample(r_point_25, template_25, method = "max")
+
+## Combine these data 
+combined_50 <- app(c(r_50_to_50, r_10_to_50, r_point_50_to_50), fun = max, na.rm = TRUE)
+names(combined_50) <- "presence"
+
+combined_25 <- app(c(r_50_to_25, r_10_to_25, r_point_25_to_25), fun = max, na.rm = TRUE)
+names(combined_25) <- "presence"
+
+## Write out as a raster file the species
+writeRaster(combined_50, paste0("/blue/guralnick/millerjared/BoCP/data/processed/grid-project/raster-50x50km/", gsub(" ", "-", species), "-50km.tif"), overwrite = TRUE)
+writeRaster(combined_25, paste0("/blue/guralnick/millerjared/BoCP/data/processed/grid-project/raster-25x25km/", gsub(" ", "-", species), "-25km.tif"), overwrite = TRUE)
+
+## Create an overall ggplot for these data (diagnostic DNR)
+# r_points_c <- as.points(combined_25)
+# r_points_sf_c <- st_as_sf(r_points_c)
+# bbox_c <- st_bbox(filter(r_points_sf_c, presence == 1))
+# contributing_occ_pts <- st_transform(point_occs_25, crs = crs(combined_extent_25_grid_sf))
+# contributing_can_centroids <- st_transform(can_cen_data, crs = crs(combined_extent_25_grid_sf))
+# contributing_ns_centroids <- st_transform(ns_cen_data, crs = crs(combined_extent_25_grid_sf))
+# ggplot() +
+#   geom_sf(data = r_points_sf_c, aes(color = as.factor(presence)), size = 1) +
+#   geom_sf(data = combined_extent_25_grid, fill = NA, color = "grey") +
+#   geom_sf(data = contributing_occ_pts, color = "red", size = 1) +
+#   geom_sf(data = contributing_can_centroids, color = "steelblue", size = 1.2) +
+#   geom_sf(data = contributing_ns_centroids, color = "goldenrod", size = 1.4) +
+#   scale_color_manual(values = c("white", "darkgreen")) +
+#   coord_sf(xlim = c(bbox_c["xmin"] - 100000, bbox_c["xmax"] + 100000), # add slight buffers so its viewable
+#            ylim = c(bbox_c["ymin"] - 100000, bbox_c["ymax"] + 100000)) +
+#   theme_minimal()

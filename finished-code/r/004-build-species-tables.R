@@ -37,6 +37,16 @@ accepted_name_retrieval_list[[i]] <- accepted_names_retrieval
 accepted_name_retrieval_vector <- do.call(rbind, accepted_name_retrieval_list)
 # check diff between dir names and total names to call
 names_not_found <- setdiff(accepted_name_retrieval_vector, list_found_names)
+#### Update: removal of failed hypennames, run once. #####
+# old_v_hyphens <- sub("-.*", "", names_not_found)
+# old_v_hyphens_filestyle <- sub(" ", "-", old_v_hyphens)
+# old_v_hyphens_filestyle <- paste0(old_v_hyphens_filestyle, ".csv")
+# file_paths_to_remove <-file.path("/blue/guralnick/millerjared/BoCP/data/processed/species-occs/", old_v_hyphens_filestyle)
+# files_to_delete <- file_paths_to_remove[file.exists(file_paths_to_remove)]
+# cat("Deleting files:\n", paste(files_to_delete, collapse = "\n"), "\n")
+# file.remove(files_to_delete)
+##########################################################
+
 # extract 
 # Extract elements where any name in the list matches a target name
 name_list_update <- name_list[sapply(name_list, function(x) any(x %in% names_not_found))]

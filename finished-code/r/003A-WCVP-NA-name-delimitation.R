@@ -15,11 +15,19 @@ library(duckdb)
 library(arrow)
 library(DBI)
 ## Load in name alignment, wcvp geographic info, and the ids as we need to append these back to link them
-name_alignment <- fread("/home/millerjared/blue_guralnick/millerjared/BoCP/data/processed/wcvp-ncbi-alignment.csv")
-wcvp_geo <- fread("/home/millerjared/blue_guralnick/millerjared/BoCP/data/raw/wcvp_distribution.csv")
-wcvp_name_ids <- fread("/home/millerjared/blue_guralnick/millerjared/BoCP/data/raw/wcvp_names.csv")
-bot_regions <- read_sf("./data/raw/level3-wgsrpd/level3.shp")
-wcvp_backbone <- fread("/home/millerjared/blue_guralnick/millerjared/BoCP/data/raw/wcvp_names.csv")
+#name_alignment <- fread("/home/millerjared/blue_guralnick/millerjared/BoCP/data/processed/wcvp-ncbi-alignment.csv")
+name_alignment2 <- fread("/blue/guralnick/millerjared/BoCP/data/processed/wcvp-ncbi-alignment-6-25.csv")
+# Replace strings ending with × with ""
+name_alignment <- name_alignment2 %>%  # note that this is an update, as our previous alignment truncated the hyphanated names. Just going to update the ones that are necessary. 
+  mutate(alignedParentName = ifelse(
+  grepl("×\\s*$", alignedParentName),
+  "",    # Replace with empty string
+  alignedParentName
+) )
+wcvp_geo <- fread("/blue/guralnick/millerjared/BoCP/data/raw/wcvp_distribution_2025_update.csv")
+wcvp_name_ids <- fread("/blue/guralnick/millerjared/BoCP/data/raw/wcvp_names.csv")
+bot_regions <- read_sf("/blue/guralnick/millerjared/BoCP/data/raw/level3-wgsrpd/level3.shp")
+wcvp_backbone <- fread("/blue/guralnick/millerjared/BoCP/data/raw/wcvp_names.csv")
 ## Botanical Regions strings that are Yukatan through Canada
 ## Keep the following string for filtering
 na_string <- c("ALA", "ABT", "ASK", "ARI", "ARK", "BRC", "CAL", "COL", "CNT", "DEL",
@@ -56,8 +64,8 @@ wcvp_info_summary <- wcvp_info %>%
   distinct()
 
 # filter down name alignment to scope of the project: Seedplants
-angio_orders <- fread("./data/raw/APG5.csv")
-gymno_orders <- fread("./data/raw/gymnosperms-fams-to-orders.csv")
+angio_orders <- fread("/blue/guralnick/millerjared/BoCP/data/raw/APG5.csv")
+gymno_orders <- fread("/blue/guralnick/millerjared/BoCP/data/raw/gymnosperms-fams-to-orders.csv")
 seed_plants <- rbind(angio_orders, gymno_orders)
 seed_plant_orders_v <- seed_plants$order
 seed_plant_families_v <- seed_plants$family
@@ -125,6 +133,6 @@ wcvp_overlap <- wcvp_overlap %>% group_by(taxon_name) %>% summarize(n = n())
 names_to_check_if_na <- names_to_check_if_na %>% 
   filter(!alignedParentName %in% wcvp_overlap$taxon_name)
 # write out these files, they will be used as source
-fwrite(name_alignment_in_na, "./data/processed/wcvp-ncbi-alignment-na.csv")
-fwrite(names_to_check_if_na, "./data/processed/wcvp-ncbi-alignment-ncbi-needs-na-check.csv")
+fwrite(name_alignment_in_na, "/blue/guralnick/millerjared/BoCP/data/processed/wcvp-ncbi-alignment-na.csv")
+fwrite(names_to_check_if_na, "/blue/guralnick/millerjared/BoCP/data/processed/wcvp-ncbi-alignment-ncbi-needs-na-check.csv")
 

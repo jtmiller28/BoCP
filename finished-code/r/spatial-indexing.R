@@ -8,10 +8,12 @@ start_num <- as.numeric(Sys.getenv("START_NUM"))
 task_id <- as.numeric(start_num)
 part <- paste0("part", task_id)
 
-# some basic code to find out the total number of raster (5km^2) cells each species will occupy
+# some basic code to find out the total number of raster (5km^2) cells each species will occupy & area of their convex hull
 library(data.table)
 library(terra)
 library(tidyverse)
+library(sf)
+library(rnaturalearth)
 
 # grab names 
 list_found_names <- list.files("/blue/guralnick/millerjared/BoCP/data/processed/fully-flagged-data/")
@@ -69,26 +71,33 @@ test_df_filtered <- test_df_filtered %>%
 if(nrow(test_df_filtered) > 0){
 
 # load input raster 
-# bio_clim_raster <- terra::rast("/blue/soltis/share/FL_Scrub/share/06_rasters/BioClim/wc2.1_30s_bio_1.tif")
-# bio_clim_raster_coarse <- terra::aggregate(bio_clim_raster, fact = 3, fun = max)
-# writeRaster(bio_clim_raster_coarse, "/blue/guralnick/millerjared/BoCP/data/processed/wc2.1_5km_bio_1.tiff")
-bio_clim_raster_coarse <- terra::rast("/blue/guralnick/millerjared/BoCP/data/processed/wc2.1_5km_bio_1.tiff")
+#bio_clim_raster_coarse <- terra::rast("/blue/guralnick/millerjared/BoCP/data/processed/wc2.1_5km_bio_1.tiff")
 # convert spatial points to a spatVector 
-pts <- terra::vect(as.data.frame(test_df_filtered), geom = c("roundedLongitude", "roundedLatitude"), crs = "EPSG:4326")
-pts <- terra::project(pts, crs(bio_clim_raster_coarse))
+#pts <- terra::vect(as.data.frame(test_df_filtered), geom = c("roundedLongitude", "roundedLatitude"), crs = "EPSG:4326")
+#pts <- terra::project(pts, crs(bio_clim_raster_coarse))
 # rasterize using unique index per raster cell
-test_df_filtered$cell_id <- terra::cellFromXY(bio_clim_raster_coarse, terra::geom(pts)[, c("x", "y")])
-length(unique(test_df_filtered$cell_id))
+#test_df_filtered$cell_id <- terra::cellFromXY(bio_clim_raster_coarse, terra::geom(pts)[, c("x", "y")])
+#length(unique(test_df_filtered$cell_id))
+## build a convex hull around pts 
+test_df_filtered_sf <- st_as_sf(test_df_filtered, coords = c("roundedLongitude", "roundedLatitude"), crs = 4326, remove = FALSE)
+hull <- st_convex_hull(st_union(test_df_filtered_sf))
+hull <- hull %>% st_transform(crs = "+proj=eqearth +datum=WGS84 +units=m +no_defs")
+world <- ne_countries(scale = "medium", returnclass = "sf")
+world_reproj <- st_transform(world, crs = st_crs(hull))
+hull_land <- st_intersection(hull, world_reproj)
+area <- as.numeric(st_area(hull_land)) * 10^-6 # km^2
 temp_df <- data.frame(
   species = unique(test_df_filtered$species), 
-  num_5km_cells = length(unique(test_df_filtered$cell_id))
+  num_5km_cells = length(unique(test_df_filtered$cell_id)), 
+  convex_hull_area = area
 ) 
-fwrite(temp_df, file = "/blue/guralnick/millerjared/BoCP/outputs/5km_cells_occupied.csv", append = TRUE, col.names = !file.exists("/blue/guralnick/millerjared/BoCP/outputs/5km_cells_occupied.csv"))
+fwrite(temp_df, file = "/blue/guralnick/millerjared/BoCP/outputs/5km_cells_occupied_and_convex_area.csv", append = TRUE, col.names = !file.exists("/blue/guralnick/millerjared/BoCP/outputs/5km_cells_occupied_and_convex_area.csv"))
 } else {
   temp_df <- data.frame(
     species = accepted_name, 
-    num_5km_cells = 0 # nothing after data filters...
+    num_5km_cells = 0, # nothing after data filters...
+    convex_hull_area = NA
   )
-  fwrite(temp_df, file = "/blue/guralnick/millerjared/BoCP/outputs/5km_cells_occupied.csv", append = TRUE, col.names = !file.exists("/blue/guralnick/millerjared/BoCP/outputs/5km_cells_occupied.csv"))
+  fwrite(temp_df, file = "/blue/guralnick/millerjared/BoCP/outputs/5km_cells_occupied_and_convex_area.csv", append = TRUE, col.names = !file.exists("/blue/guralnick/millerjared/BoCP/outputs/5km_cells_occupied_and_convex_area.csv"))
   
 }
